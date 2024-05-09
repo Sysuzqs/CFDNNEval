@@ -86,28 +86,17 @@ class GNN_Layer(MessagePassing):
 
 class MPNN(nn.Module):
     def __init__(self, 
-                 loss_fn: nn.Module,
                  neighbors: int = 1,
                  delta_t: float = 0.1,
                  hidden_features: int = 128,
                  hidden_layers: int = 6,
-                 n_params: int = 5,
-                 physics: str = "u"):
-        super().__init__(loss_fn)
-        self.loss_fn = loss_fn
+                 n_params: int = 5):
+        super().__init__()
         self.k = neighbors
         self.dt = delta_t
         self.hidden_features = hidden_features
         self.hidden_layers = hidden_layers
         self.n_params = n_params
-
-        assert physics in ("u", "v", "p")
-        if physics == "u":
-            self.v = 0
-        elif physics == "v":
-            self.v = 1
-        else:
-            self.v = 2
 
         # encoder
         self.embedding_mlp = nn.Sequential(
@@ -136,18 +125,21 @@ class MPNN(nn.Module):
 
     def forward(
         self,
-        inputs: Tensor,
-        label: Optional[Tensor] = None,
-        case_params: Optional[dict] = None,
-        mask: Optional[Tensor] = None,
-        **kwargs,
-    ) -> dict:
-        device = inputs.device
-        b, c, h, w = inputs.shape
+        inputs,
+        case_params,
+        grid
+        ):
+        """
+        Args:
+            inputs (Tensor): [bs, h, w, 1]
+            case_params (Tensor): [bs, h, w, num_case_params]
+            grid (Tensor): [bs, h, w, 2]
+        """
+        b, h, w = inputs.shape[:3]
         
         # pre-process data
-        graph = self.create_graph(inputs, label, case_params, mask).to(device)
-        u = graph.x[:, self.v].unsqueeze(-1) # [bs*nx, 1]
+        graph = self.create_graph(inputs, case_params, grid)
+        u = graph.x # [bs*nx, 1]
         x_pos = graph.pos # [bs*nx, 2]
         edge_index = graph.edge_index # [2, num_edges]
         batch = graph.batch # [bs*nx]
@@ -163,51 +155,28 @@ class MPNN(nn.Module):
         diff = self.output_mlp(f) # [bs*nx, 1]
         out = u + self.dt * diff # [bs*nx, 1]
 
-        # post-process
-        # loss = self.loss_fn(preds=out, labels=target)
-        preds = torch.reshape(out, [b, h, w, 1]).permute([0, 3, 1, 2]) # [b, 1, h, w]
-        if label is not None:
-            labels = label[:, self.v, :, :].unsqueeze(1)
-            loss = self.loss_fn(preds=preds, labels=labels)
-            return dict(
-                preds=preds,
-                loss=loss,
-            )
-
-        return dict(preds=preds)
+        return out.reshape([b, h, w, -1])
     
     def create_graph(self, 
                      inputs, 
-                     label, 
-                     case_params, 
-                     mask):
+                     case_params,
+                     grid):
+        """
+        Args (Tensor): [bs, h, w, 2]
+        case_params (Tensor): [bs, h, w, num_case_params]
+        grid (Tensor): [bs, h, w, 2]
+        """
         device = inputs.device
+        b, h, w, c = inputs.shape
+        x = torch.reshape(inputs, [-1, c])
+        batch = torch.arange(b).unsqueeze(-1).repeat(1, h*w).flatten().long().to(device) # [b*h*w]
+        pos = torch.reshape(grid, [-1, 2])
+        edge_index = radius_graph(pos, r=np.sqrt(2)*self.k, batch=batch, loop=False)
 
-        b, c, h, w = inputs.shape
-        inputs = inputs.permute([0, 2, 3, 1]).reshape([-1, c]) # [b, c, h, w] -> [b, h, w, c] -> [b*h*w, c]
-        label = label.permute([0, 2, 3, 1]).reshape([-1, c]) # [b, c, h, w] -> [b, h, w, c] -> [b*h*w, c]
-        batch = torch.arange(b).unsqueeze(-1).repeat(1, h*w).flatten().long() # [b*h*w]
-
-        pos = torch.Tensor().to(device) # [b*h*w, 2]
-        for i in range(b):
-            x = torch.linspace(0, case_params[i, 1], w)
-            y = torch.linspace(0, case_params[i, 0], h)
-            gird_x, grid_y = torch.meshgrid(x, y, indexing='ij')
-            xy = torch.stack([gird_x, grid_y], dim=-1).reshape([-1, 2]).to(device) # [h*w, 2]
-            pos = torch.cat([pos, xy], dim=0)
-
-        # edge index, x and y below is logical coordinate
-        x = torch.arange(w).float()
-        y = torch.arange(h).float()
-        gird_x, grid_y = torch.meshgrid(x, y, indexing='ij')
-        xy = torch.stack([gird_x, grid_y], dim=-1).reshape([-1, 2]).repeat(b, 1) # [b*h*w, 2]
-        edge_index = radius_graph(xy, r=np.sqrt(2)*self.k, batch=batch, loop=False)
-
-        graph = Data(x=inputs, edge_index=edge_index)
-        graph.y = label
+        graph = Data(x=x, edge_index=edge_index)
         graph.pos = pos
         graph.batch = batch
-        graph.params = case_params.repeat(1, h*w).reshape([b*h*w, -1]) # [b, num_params] -> [b*h*w, num_params]
+        graph.params = torch.reshape(case_params, [-1, self.n_params])
         graph.validate(raise_on_error=True)
     
         return graph
