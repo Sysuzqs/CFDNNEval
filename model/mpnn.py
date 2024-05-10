@@ -171,7 +171,8 @@ class MPNN(nn.Module):
         x = torch.reshape(inputs, [-1, c])
         batch = torch.arange(b).unsqueeze(-1).repeat(1, h*w).flatten().long().to(device) # [b*h*w]
         pos = torch.reshape(grid, [-1, 2])
-        edge_index = radius_graph(pos, r=np.sqrt(2)*self.k, batch=batch, loop=False)
+        dx = 1 / min(h, w)
+        edge_index = radius_graph(pos, r=np.sqrt(2)*self.k*dx, batch=batch, loop=False)
 
         graph = Data(x=x, edge_index=edge_index)
         graph.pos = pos

@@ -1,0 +1,38 @@
+seed: 0
+flow_name: "tube"
+model_name: "mpnn"
+if_training: True
+continue_training: False
+model_path: None
+output_dir: "results"
+training_type: "autoregressive" # "single_step"
+epochs: 100
+dataset:
+  saved_folder: "/home/data2/cfdbench_hdf5/tube"
+  case_name: "bc_prop_geo"
+  reduced_resolution: 1
+  reduced_batch: 1
+  delta_time: 0.1
+  stable_state_diff: 0.001
+  norm_props: True
+  norm_bc: True
+  reshape_parameters: True
+  multi_step_size: 3
+dataloader:
+  batch_size: 8
+  num_workers: 0
+  pin_memory: False
+model:
+  neighbors: 1
+  delta_t: 0.1
+  hidden_features: 128
+  hidden_layers: 6
+  n_params: 5
+optimizer:
+  name: Adam
+  lr: 0.001
+  weight_decay: 0.001
+scheduler:
+  name: "StepLR"
+  step_size: 100
+  gamma: 0.5

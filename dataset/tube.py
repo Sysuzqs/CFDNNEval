@@ -134,10 +134,10 @@ class TubeDataset(Dataset):
                             out_magn = torch.sqrt(out[:,:,0] ** 2 + out[:,:,1] ** 2)
                             diff = torch.abs(inp_magn - out_magn).mean()
                             if diff < stable_state_diff:
-                                print(
-                                    f"Converged at {i} out of {num_steps},"
-                                    f" {this_case_params}"
-                                )
+                                # print(
+                                #     f"Converged at {i} out of {num_steps},"
+                                #     f" {this_case_params}"
+                                # )
                                 break
                             assert not torch.isnan(inp).any()
                             assert not torch.isnan(out).any()

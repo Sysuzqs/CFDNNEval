@@ -107,6 +107,7 @@ def main(args):
     total_time = 0
     for epoch in range(start_epoch, args["epochs"]):
         train_l2, time = train_loop(model, train_loader, optimizer, loss_fn, args)
+        scheduler.step()
         total_time += time
         print(f"[Epoch {epoch}] train_l2: {train_l2}, time_spend: {time:.3f}")
 
