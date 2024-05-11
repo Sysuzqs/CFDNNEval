@@ -3,15 +3,20 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import yaml
 from timeit import default_timer
+
+import metrics
 from utils import *
 
+METRICS = ['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE']
 
-def train_loop(model, train_loader, optimizer, loss_fn, args):
+def train_loop(train_loader, model, optimizer, loss_fn, args):
     model.train()
     t1 = default_timer()
-    train_l2 = 0
+    train_loss = 0
+    train_l_inf = 0
     step = 0
     for x, y, mask, case_params, grid, _ in train_loader:
         # preprocess data
@@ -25,28 +30,83 @@ def train_loop(model, train_loader, optimizer, loss_fn, args):
         y = y * mask
 
         # forward
-        x = x[..., 0].unsqueeze(-1)
-        y = y[..., 0].unsqueeze(-1)
-        if train_loader.dataset.multi_step_size > 1:
-            preds=[]
-            for i in range(train_loader.dataset.multi_step_size):
-                pred = model(x, case_params, grid)
+        assert hasattr(train_loader.dataset, "multi_step_size")
+        preds = []
+        total_loss = 0
+        for i in range(train_loader.dataset.multi_step_size):
+            loss, pred, info = model.one_forward_step(x, case_params, mask[:, i], grid, y[:, i].clone(), loss_fn)
+            preds.append(pred)
+            total_loss += loss
+            x = pred
+        preds=torch.stack(preds, dim=1)
+        # backward
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
+
+        # record
+        if args["model"]["var_id"] is not None:
+            y = y[..., args["model"]["var_id"]].unsqueeze(-1)
+        train_loss += total_loss.item()
+        train_l_inf = max(train_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
+
+    train_loss /= step
+    t2 = default_timer()
+    return train_loss, train_l_inf, t2 - t1
+
+
+def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
+    model.eval()
+    val_l2 = 0
+    val_l_inf = 0
+    step = 0
+    res_dict = {}
+    for name in metric_names:
+        res_dict[name] = []
+    
+    with torch.no_grad():
+        for x, y, mask, case_params, grid, _ in val_loader:
+            step += 1
+            batch_size = x.shape[0]
+            x = x.to(device) # x: input tensor (The previous time step) [b, x1, ..., xd, v]
+            y = y.to(device) # y: target tensor (The latter time step) [b, x1, ..., xd, v]
+            grid = grid.to(device) # grid: meshgrid [b, x1, ..., xd, dims]
+            mask = mask.to(device) # mask [b, x1, ..., xd, 1]
+            case_params = case_params.to(device) #parameters [b, x1, ..., xd, p]
+            y = y * mask
+
+            # infer
+            assert hasattr(val_loader.dataset,"multi_step_size")
+            preds = []
+            for i in range(val_loader.dataset.multi_step_size):
+                pred = model(x, case_params, mask[:, i], grid)
                 preds.append(pred)
                 x = pred
             preds=torch.stack(preds, dim=1)
+
+            # compute metric
+            if args["model"]["var_id"] is not None:
+                y = y[..., args["model"]["var_id"]].unsqueeze(-1)
+            val_l2 += loss_fn(preds.reshape(batch_size, -1), y.reshape(batch_size, -1)).item()
+            val_l_inf = max(val_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
+            for name in metric_names:
+                    metric_fn = getattr(metrics, name)
+                    res_dict[name].append(metric_fn(preds, y))
+
+    for name in metric_names:
+        res_list = res_dict[name]
+        if name == "MaxError":
+            res = torch.stack(res_list, dim=0)
+            res, _ = torch.max(res, dim=0)
         else:
-            preds = model(x, case_params, grid)
-        loss = loss_fn(preds.reshape([batch_size, -1]), y.reshape([batch_size, -1]))
-        train_l2 += loss.item()
+            res = torch.cat(res_list, dim=0)
+            res = torch.mean(res, dim=0)
+        res_dict[name] = res
+    metrics.print_res(res_dict)
 
-        # backward
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    val_l2 /= step
 
-    train_l2 /= step
-    t2 = default_timer()
-    return train_l2, t2 - t1
+    return val_l2, val_l_inf
 
 
 def main(args):
@@ -58,9 +118,15 @@ def main(args):
                         f"_bs{args['dataloader']['batch_size']}" + 
                         f"_wd{args['optimizer']['weight_decay']}" +
                         f"_{args['training_type']}")
-    saved_dir = os.path.join(args["output_dir"], args["flow_name"], args["dataset"]["case_name"])
+    saved_dir = os.path.join(args["saved_dir"], args["flow_name"], args["dataset"]["case_name"])
     if not os.path.exists(saved_dir):
         os.makedirs(saved_dir)
+    if args["if_training"] and args["tensorboard"]:
+        log_path = os.path.join(args["output_dir"], 
+                                args["model_name"], 
+                                args["flow_name"] + '_' + args['dataset']['case_name'], 
+                                saved_model_name)
+        writer = SummaryWriter(log_path)
 
     # data
     train_data, val_data, test_data = get_dataset(args)
@@ -73,10 +139,21 @@ def main(args):
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("The number of model parameters to train:", total_params)
     if not args["if_training"]:
+        print(f"Test mode, load checkpoint from {args['model_path']}")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"Best epoch: {checkpoint['epoch']}")
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
+        model.to(device)
+        print("Start testing")
+        # TODO test code
+        print("Done")
         return
     if args["continue_training"]:
-        checkpoint = torch.load(args["model_path"])
+        print(f"Continue training, load checkpoint from {args['model_path']}")
         model.load_state_dict(checkpoint["model_state_dict"])
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
     model.to(device)
 
     # optimizer
@@ -106,19 +183,64 @@ def main(args):
     print(f"Start training from epoch {start_epoch}")
     total_time = 0
     for epoch in range(start_epoch, args["epochs"]):
-        train_l2, time = train_loop(model, train_loader, optimizer, loss_fn, args)
+        train_loss, train_l_inf, time = train_loop(train_loader, model, optimizer, loss_fn, args)
         scheduler.step()
         total_time += time
-        print(f"[Epoch {epoch}] train_l2: {train_l2}, time_spend: {time:.3f}")
+        if args["tensorboard"]:
+            writer.add_scalar('Train Loss', train_loss, epoch)
+        print(f"[Epoch {epoch}] train_loss: {train_loss}, train_l_inf: {train_l_inf}, time_spend: {time:.3f}")
+        saved_path = os.path.join(saved_dir, saved_model_name)
+        model_state_dict = model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict()
+        torch.save({"epoch": epoch + 1, 
+                    "loss": min_val_loss,
+                    "model_state_dict": model_state_dict,
+                    "optimizer_state_dict": optimizer.state_dict()}, saved_path + "-latest.pt")
+        if (epoch + 1) % args["save_period"] == 0:
+            print("====================validate====================")
+            val_l2_full, val_l_inf = val_loop(val_loader, model, loss_fn, args)
+            if args["tensorboard"]:
+                writer.add_scalar('Val Loss', val_l2_full, epoch)
+            print(f"[Epoch {epoch}] val_l2_full: {val_l2_full} val_l_inf: {val_l_inf}")
+            print("================================================")
+            if val_l2_full < min_val_loss:
+                min_val_loss = val_l2_full
+                torch.save({"epoch": epoch + 1, 
+                            "loss": min_val_loss,
+                            "model_state_dict": model_state_dict,
+                            "optimizer_state_dict": optimizer.state_dict()
+                            }, saved_path + "-best.pt")
+    print(f"Total train time: {total_time:.4f}s. Train one epoch every {total_time / (args['epochs'] - start_epoch):.4f}s on average.")
+    print("Done.")
 
 
 if __name__ == "__main__":
+    # specific device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") # can be accessed globally
+
+    # parse args from command line
     parser = argparse.ArgumentParser()
-    parser.add_argument("config_file", type=str, help="Path to config file")
+    parser.add_argument("config_file", type=str, help="Path to config file.")
+    parser.add_argument("-c", "--case_name", type=str, help="Case name.")
+    parser.add_argument("--lr", type=float, help="learning rate.")
+    parser.add_argument("-bs", "--batch_size", type=int, help="Batch size.")
+    parser.add_argument("-wd", "--weight_decay", type=float, help="Weight decay.")
+    parser.add_argument("--epochs", type=int, help="The number of training epochs.")
     cmd_args = parser.parse_args()
+
+    # read default args from config file
     with open(cmd_args.config_file, 'r') as f:
         args = yaml.safe_load(f)
-    print(args)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") # can be accessed globally
+    # update args using command args
+    if cmd_args.case_name:
+        args["dataset"]["case_name"] = cmd_args.case_name
+    if cmd_args.epochs:
+        args["epochs"] = cmd_args.epochs
+    if cmd_args.batch_size:
+        args["dataloader"]["batch_size"] = cmd_args.batch_size
+    for k in args["optimizer"]:
+        if hasattr(cmd_args, k) and getattr(cmd_args, k):
+            args["optimizer"][k] = getattr(cmd_args, k)
+    print(args)
+    
     main(args)
