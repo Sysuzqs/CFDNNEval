@@ -90,13 +90,15 @@ class MPNN(nn.Module):
                  delta_t: float = 0.1,
                  hidden_features: int = 128,
                  hidden_layers: int = 6,
-                 n_params: int = 5):
+                 n_params: int = 5,
+                 var_id: int = 0):
         super().__init__()
         self.k = neighbors
         self.dt = delta_t
         self.hidden_features = hidden_features
         self.hidden_layers = hidden_layers
         self.n_params = n_params
+        self.var_id = var_id
 
         # encoder
         self.embedding_mlp = nn.Sequential(
@@ -127,15 +129,20 @@ class MPNN(nn.Module):
         self,
         inputs,
         case_params,
+        mask,
         grid
         ):
         """
         Args:
-            inputs (Tensor): [bs, h, w, 1]
+            inputs (Tensor): [bs, h, w, c]
             case_params (Tensor): [bs, h, w, num_case_params]
             grid (Tensor): [bs, h, w, 2]
+
+        Returns:
         """
-        b, h, w = inputs.shape[:3]
+        bs, h, w, c = inputs.shape
+        if c > 1:
+            inputs = inputs[..., self.var_id].unsqueeze(-1)
         
         # pre-process data
         graph = self.create_graph(inputs, case_params, grid)
@@ -155,16 +162,20 @@ class MPNN(nn.Module):
         diff = self.output_mlp(f) # [bs*nx, 1]
         out = u + self.dt * diff # [bs*nx, 1]
 
-        return out.reshape([b, h, w, -1])
+        return out.reshape([bs, h, w, -1])
     
     def create_graph(self, 
                      inputs, 
                      case_params,
                      grid):
         """
-        Args (Tensor): [bs, h, w, 2]
-        case_params (Tensor): [bs, h, w, num_case_params]
-        grid (Tensor): [bs, h, w, 2]
+        Args:
+            inputs (Tensor): [bs, h, w, 1]
+            case_params (Tensor): [bs, h, w, num_case_params]
+            grid (Tensor): [bs, h, w, 2]
+        
+        Returns:
+
         """
         device = inputs.device
         b, h, w, c = inputs.shape
@@ -181,3 +192,38 @@ class MPNN(nn.Module):
         graph.validate(raise_on_error=True)
     
         return graph
+    
+    def one_forward_step(self, x, case_params, mask, grid, y, loss_fn=None, args=None):
+        """
+        Args:
+        
+        Returns:
+
+        """
+        bs, h, w, c = x.shape
+        if c > 1:
+            x = x[..., self.var_id].unsqueeze(-1)
+        y = y[..., self.var_id].unsqueeze(-1)
+        
+        # pre-process data
+        graph = self.create_graph(x, case_params, grid)
+        u = graph.x # [bs*nx, 1]
+        x_pos = graph.pos # [bs*nx, 2]
+        edge_index = graph.edge_index # [2, num_edges]
+        batch = graph.batch # [bs*nx]
+        params = graph.params # [bs*nx, num_params]
+
+        # encode
+        node_input = torch.cat([u, x_pos, params], dim=-1)
+        f = self.embedding_mlp(node_input) # [bs*nx, hidden_dim]
+        # process
+        for i in range(self.hidden_layers):
+            f = self.gnn_layers[i](f, u, x_pos, params, edge_index, batch) # [bs*nx, hidden_dim]
+        # decode
+        diff = self.output_mlp(f) # [bs*nx, 1]
+        out = u + self.dt * diff # [bs*nx, 1]
+
+        # loss
+        loss = loss_fn(out.reshape([bs, -1]), y.reshape([bs, -1]))
+
+        return loss, out.reshape([bs, h, w, -1]), {}

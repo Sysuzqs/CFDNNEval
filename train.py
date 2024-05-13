@@ -188,7 +188,7 @@ def main(args):
         total_time += time
         if args["tensorboard"]:
             writer.add_scalar('Train Loss', train_loss, epoch)
-        print(f"[Epoch {epoch}] train_loss: {train_loss}, train_l_inf: {train_l_inf}, time_spend: {time:.3f}")
+        print(f"[Epoch {epoch}] train_loss: {train_loss}, train_l_inf: {train_l_inf}, time_spend: {time:.3f}s")
         saved_path = os.path.join(saved_dir, saved_model_name)
         model_state_dict = model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict()
         torch.save({"epoch": epoch + 1, 
