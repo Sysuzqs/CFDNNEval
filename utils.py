@@ -26,6 +26,8 @@ def get_dataset(args):
 def get_model(args):
     if args["model_name"] == "mpnn":
         model = MPNN(**args["model"])
+    elif args["model_name"] == "mpnn":
+        pass
     else:
         raise NotImplementedError
     return model

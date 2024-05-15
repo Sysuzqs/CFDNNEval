@@ -136,6 +136,7 @@ class MPNN(nn.Module):
         Args:
             inputs (Tensor): [bs, h, w, c]
             case_params (Tensor): [bs, h, w, num_case_params]
+            mask (Tensor): [bs, h, w, 1]
             grid (Tensor): [bs, h, w, 2]
 
         Returns:
