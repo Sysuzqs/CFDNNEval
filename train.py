@@ -45,7 +45,7 @@ def train_loop(train_loader, model, optimizer, loss_fn, args):
         optimizer.step()
 
         # record
-        if args["model"]["var_id"] is not None:
+        if args["model_name"] == "mpnn":
             y = y[..., args["model"]["var_id"]].unsqueeze(-1)
         train_loss += total_loss.item()
         train_l_inf = max(train_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
@@ -85,7 +85,7 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
             preds=torch.stack(preds, dim=1)
 
             # compute metric
-            if args["model"]["var_id"] is not None:
+            if args["model_name"] == "mpnn":
                 y = y[..., args["model"]["var_id"]].unsqueeze(-1)
             val_l2 += loss_fn(preds.reshape(batch_size, -1), y.reshape(batch_size, -1)).item()
             val_l_inf = max(val_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
@@ -116,11 +116,14 @@ def main(args):
     saved_model_name = (args["model_name"] + 
                         f"_lr{args['optimizer']['lr']}" + 
                         f"_bs{args['dataloader']['batch_size']}" + 
-                        f"_wd{args['optimizer']['weight_decay']}" +
-                        f"_{args['training_type']}")
+                        f"_wd{args['optimizer']['weight_decay']}")
+    if args["model_name"] == "mpnn":
+        saved_model_name += f"_v{args['model']['var_id']}"
     saved_dir = os.path.join(args["saved_dir"], args["flow_name"], args["dataset"]["case_name"])
+    # check path existence
     if not os.path.exists(saved_dir):
         os.makedirs(saved_dir)
+    # visualize
     if args["if_training"] and args["tensorboard"]:
         log_path = os.path.join(args["output_dir"], 
                                 args["model_name"], 

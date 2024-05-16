@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import random
 
-from dataset import TubeDataset
-from model import MPNN
+from dataset import TubeDataset, NSCHDataset
+from model import MPNN, GNOT
 
 def setup_seed(seed):
     torch.manual_seed(seed)  # CPU
@@ -18,6 +18,10 @@ def get_dataset(args):
         train_dataset = TubeDataset(filename="tube_train.hdf5", **args["dataset"])
         val_dataset = TubeDataset(filename="tube_dev.hdf5", **args["dataset"])
         test_dataset = TubeDataset(filename="tube_test.hdf5", **args["dataset"])
+    elif args["flow_name"] == "NSCH":
+        train_dataset = NSCHDataset(filename="train.hdf5", **args["dataset"])
+        val_dataset = NSCHDataset(filename="val.hdf5", **args["dataset"])
+        test_dataset = NSCHDataset(filename="test.hdf5", **args["dataset"])
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset
@@ -26,8 +30,8 @@ def get_dataset(args):
 def get_model(args):
     if args["model_name"] == "mpnn":
         model = MPNN(**args["model"])
-    elif args["model_name"] == "mpnn":
-        pass
+    elif args["model_name"] == "gnot":
+        model = GNOT(**args["model"])
     else:
         raise NotImplementedError
     return model

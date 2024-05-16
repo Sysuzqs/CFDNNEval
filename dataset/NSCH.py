@@ -2,7 +2,6 @@ import os
 import h5py
 import numpy as np
 import torch
-import random
 from torch.utils.data import Dataset
 
 class NSCHDataset(Dataset):
@@ -15,6 +14,7 @@ class NSCHDataset(Dataset):
                  stable_state_diff = 0.001,
                  norm_props = True,
                  reshape_parameters = True,
+                 multi_step_size = 1,
                  ):
         
         '''
@@ -32,7 +32,7 @@ class NSCHDataset(Dataset):
         shape:
             (x, y, c), (x, y, c), (x, y, 1), (x, y, p), (x, y, 2), (1)
         '''
-        
+        self.multi_step_size = multi_step_size
         self.case_name = case_name
         self.inputs = []
         self.labels = []
@@ -68,49 +68,57 @@ class NSCHDataset(Dataset):
 
         # print(fuvp.shape) # (B, T, Nx*Ny, 6)  6:(x,y,phi,u,v,pressure)
         fuvp= fuvp.reshape(fuvp.shape[0],fuvp.shape[1],66,66,6)
+        fuv = fuvp[:,:,:,:, :5] # (B, T, Nx, Ny, 5)
         # idx = 0 # The index to record data corresponding to each frame
-        fuvp = fuvp[:,:, ::reduced_resolution, ::reduced_resolution] # (B, T, Nx, Ny, 6)
+        fuv = fuv[:,:, ::reduced_resolution, ::reduced_resolution] # (B, T, Nx, Ny, 5)
         
 
         # filter the vaild frames
-        for i in range(fuvp.shape[0]):
-            inputs= fuvp[i, :-1]
-            outputs = fuvp[i, 1:]
+        for i in range(fuv.shape[0]):
+            inputs= fuv[i, :-1]
+            outputs = fuv[i, 1:]
             num_steps = len(inputs)
             for t in range(num_steps):
                 if np.isnan(inputs[t]).any() or np.isnan(outputs[t]).any():
-                    print(f"Invalid frame {t} in case {i}")
+                    # print(f"Invalid frame {t} in case {i}")
                     break
                 inp_magn = np.sqrt(np.sum(inputs[t, :, :, 2:] ** 2, axis=-1))
                 out_magn = np.sqrt(np.sum(outputs[t, :, :, 2:] ** 2, axis=-1))
                 # out_magn = np.sqrt(outputs[t, :, :, 3] ** 2 + outputs[t, :, :, 4] ** 2)
                 diff = np.abs(inp_magn - out_magn).mean()
                 if diff < stable_state_diff:
-                    print(f"Converged at {t} in case {i}")
+                    # print(f"Converged at {t} in case {i}")
                     break
-                self.inputs.append(torch.from_numpy(inputs[t, :, :, 2:]))
-                self.labels.append(torch.from_numpy(outputs[t, :, :, 2:]))
-                self.case_ids.append(i)
                 
+                if t+1 >= multi_step_size:
+                    self.inputs.append(torch.from_numpy(inputs[t+1-multi_step_size, :,:, 2:]).float())  
+                    self.labels.append(torch.from_numpy(outputs[t+1-multi_step_size:t+1, :,:,2:]).float())
+                    self.case_ids.append(i)
+
         #################################################
                         
         #Total frames = The sum of the number of frames for each case
-        self.inputs = torch.stack(self.inputs).float() #(Total frames, x, y, 4)
-        self.labels = torch.stack(self.labels).float() #(Total frames, x, y, 4)
+        self.inputs = torch.stack(self.inputs).float() #(Total frames, x, y, 3)
+        self.labels = torch.stack(self.labels).float() #(Total frames, multi_step_size, x, y, 3)
         self.case_ids = np.array(self.case_ids) #(Total frames)
 
         self.masks = torch.ones_like(self.inputs[0,...,0:1]).float() #(x, y, 1)
-
+        
+        if self.multi_step_size==1:
+            self.labels = self.labels.squeeze(1)
+        
         if reshape_parameters:
             #process the parameters shape
             self.physic_prop = torch.from_numpy(physic_prop).float() #(Total cases, 3)
             cases, p = self.physic_prop.shape
             _, x, y, _ = self.inputs.shape
             self.physic_prop = self.physic_prop.reshape(cases, 1, 1, p)
-            self.physic_prop = self.physic_prop.repeat(1, x, y, 1) #(cases, x, y, p)
+            self.physic_prop = self.physic_prop.repeat(1, x, y, 1) #(cases, x, y, 3)
+        else:
+            self.physic_prop = torch.from_numpy(physic_prop).float() #(Total cases, 3)
 
         #get grid
-        self.grid = torch.from_numpy(fuvp[0,0,:,:,:2]).float()  # (x, y, 2)
+        self.grid = torch.from_numpy(fuv[0,0,:,:,:2]).float()  # (x, y, 2)
 
         # print(f"shape of inputs: {self.inputs.shape}")
         
@@ -127,8 +135,10 @@ class NSCHDataset(Dataset):
 
     def __getitem__(self, idx):
         input = self.inputs[idx]  # (x, y, 2)
-        label = self.labels[idx]  # (x, y, 2)
+        label = self.labels[idx]  # (multi_step_size, x, y, 2) or (x, y, 2)
         mask = self.masks # (x, y, 1)
+        if self.multi_step_size > 1:
+            mask = mask.unsqueeze(0).repeat(self.multi_step_size, 1, 1, 1)
         case_id = self.case_ids[idx]
         physic_prop = self.physic_prop[case_id] #(x, y, p)
         return input, label, mask, physic_prop, self.grid, case_id
