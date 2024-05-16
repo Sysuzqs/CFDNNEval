@@ -90,8 +90,8 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
             val_l2 += loss_fn(preds.reshape(batch_size, -1), y.reshape(batch_size, -1)).item()
             val_l_inf = max(val_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
             for name in metric_names:
-                metric_fn = getattr(metrics, name)
-                res_dict[name].append(metric_fn(preds, y))
+                    metric_fn = getattr(metrics, name)
+                    res_dict[name].append(metric_fn(preds, y))
 
     for name in metric_names:
         res_list = res_dict[name]
@@ -109,56 +109,6 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
     return val_l2, val_l_inf
 
 
-def test_loop(test_loader, model, args, metric_names=METRICS):
-    res_dict = {}
-    for name in metric_names:
-        res_dict[name] = []
-    model.eval()
-    prev_case_id = -1
-    preds = torch.Tensor().to(device)
-    targets = torch.Tensor().to(device)
-    for x, y, mask, case_params, grid, case_id in test_loader:
-        if prev_case_id != case_id:
-            if prev_case_id != -1: # compute metric here
-                for name in metric_names:
-                    metric_fn = getattr(metrics, name)
-                    res_dict[name].append(metric_fn(preds, targets))
-                pass # TODO
-            preds = torch.Tensor().to(device)
-            targets = torch.Tensor().to(device)
-
-        x = x.to(device) # x: input tensor (The previous time step) [b, x1, ..., xd, v]
-        y = y.to(device) # y: target tensor (The latter time step) [b, x1, ..., xd, v]
-        grid = grid.to(device) # grid: meshgrid [b, x1, ..., xd, dims]
-        mask = mask.to(device) # mask [b, x1, ..., xd, 1]
-        case_params = case_params.to(device) #parameters [b, x1, ..., xd, p]
-        y = y * mask
-        
-        with torch.no_grad():
-            pred = model(x, case_params, mask, grid) # [bs, h, w, c] (mpnn: [bs, h, w, 1])
-
-        # update
-        preds = torch.cat([preds, pred.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
-        if args["model_name"] == "mpnn":
-            y = y[..., args["model"]["var_id"]].unsqueeze(-1) # [bs, t, h, w, 1]
-        targets = torch.cat([targets, y.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
-
-        prev_case_id = case_id
-    
-    # post process
-    for name in metric_names:
-        res_list = res_dict[name]
-        if name == "MaxError":
-            res = torch.stack(res_list, dim=0)
-            res, _ = torch.max(res, dim=0)
-        else:
-            res = torch.cat(res_list, dim=0)
-            res = torch.mean(res, dim=0)
-        res_dict[name] = res
-
-    return res_dict
-
-
 def main(args):
     # init
     setup_seed(args["seed"])
@@ -169,6 +119,12 @@ def main(args):
                         f"_wd{args['optimizer']['weight_decay']}")
     if args["model_name"] == "mpnn":
         saved_model_name += f"_v{args['model']['var_id']}"
+    elif args["model_name"] == "gnot":
+        saved_model_name += (f"_layer{args['model']['n_layers']}" +
+                         f"_dim{args['model']['n_hidden']}" +
+                         f"_head{args['model']['n_head']}")
+    else:
+        pass
     saved_dir = os.path.join(args["saved_dir"], args["flow_name"], args["dataset"]["case_name"])
     # check path existence
     if not os.path.exists(saved_dir):
@@ -185,7 +141,7 @@ def main(args):
     train_data, val_data, test_data = get_dataset(args)
     train_loader = DataLoader(train_data, shuffle=True, **args["dataloader"])
     val_loader = DataLoader(val_data, shuffle=False, **args["dataloader"])
-    test_loader = DataLoader(test_data, shuffle=False, batch_size=1)
+    test_loader = DataLoader(test_data, shuffle=False, **args["dataloader"])
 
     # model
     model = get_model(args)
@@ -199,10 +155,7 @@ def main(args):
             model = nn.DataParallel(model)
         model.to(device)
         print("Start testing")
-        # TODO: add a write function
-        results = test_loop(test_loader, model, args)
-        for k in results:
-            print(f"{k}: {results[k]}")
+        # TODO test code
         print("Done")
         return
     if args["continue_training"]:
@@ -230,7 +183,10 @@ def main(args):
         min_val_loss = checkpoint['loss']
     sched_args = args["scheduler"]
     sched_name = sched_args.pop("name")
-    scheduler = getattr(torch.optim.lr_scheduler, sched_name)(optimizer, last_epoch=start_epoch-1, **sched_args)
+    if sched_name == "OneCycleLR":
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args["optimizer"]["lr"], epochs=args["epochs"], steps_per_epoch=len(train_loader), last_epoch=start_epoch-1)
+    else:
+        scheduler = getattr(torch.optim.lr_scheduler, sched_name)(optimizer, last_epoch=start_epoch-1, **sched_args)
 
     # loss function
     loss_fn = nn.MSELoss(reduction="mean")
@@ -277,10 +233,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="Path to config file.")
     parser.add_argument("-c", "--case_name", type=str, help="Case name.")
+    # training hyper-parameters
     parser.add_argument("--lr", type=float, help="learning rate.")
     parser.add_argument("-bs", "--batch_size", type=int, help="Batch size.")
     parser.add_argument("-wd", "--weight_decay", type=float, help="Weight decay.")
     parser.add_argument("--epochs", type=int, help="The number of training epochs.")
+    # model parameters
+    parser.add_argument("--n_layers", type=int, help="The number of attention layers.")
+    parser.add_argument("--n_hidden", type=int, help="The number of feature dims.")
+    parser.add_argument("--n_head", type=int, help="The number of heads.")
+    parser.add_argument("--n_experts", type=int, help="The number of experts.")
+    parser.add_argument("--mlp_layers", type=int, help="The number of layers in trunk mlp and output mlp.")
     cmd_args = parser.parse_args()
 
     # read default args from config file
@@ -294,9 +257,14 @@ if __name__ == "__main__":
         args["epochs"] = cmd_args.epochs
     if cmd_args.batch_size:
         args["dataloader"]["batch_size"] = cmd_args.batch_size
+    # optimzer
     for k in args["optimizer"]:
         if hasattr(cmd_args, k) and getattr(cmd_args, k):
             args["optimizer"][k] = getattr(cmd_args, k)
+    # model
+    for k in args["model"]:
+        if hasattr(cmd_args, k) and getattr(cmd_args, k):
+            args["model"][k] = getattr(cmd_args, k)
     print(args)
     
     main(args)

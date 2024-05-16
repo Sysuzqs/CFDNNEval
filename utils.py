@@ -14,14 +14,23 @@ def setup_seed(seed):
 
 
 def get_dataset(args):
+    dataset_args = args["dataset"]
     if args["flow_name"] == "tube":
-        train_dataset = TubeDataset(filename="tube_train.hdf5", **args["dataset"])
-        val_dataset = TubeDataset(filename="tube_dev.hdf5", **args["dataset"])
-        test_dataset = TubeDataset(filename="tube_test.hdf5", **args["dataset"])
+        train_dataset = TubeDataset(filename="tube_train.hdf5", **dataset_args)
+        val_dataset = TubeDataset(filename="tube_dev.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = TubeDataset(filename="tube_test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = TubeDataset(filename="tube_test.hdf5", **dataset_args)
     elif args["flow_name"] == "NSCH":
-        train_dataset = NSCHDataset(filename="train.hdf5", **args["dataset"])
-        val_dataset = NSCHDataset(filename="val.hdf5", **args["dataset"])
-        test_dataset = NSCHDataset(filename="test.hdf5", **args["dataset"])
+        train_dataset = NSCHDataset(filename="train.hdf5", **dataset_args)
+        val_dataset = NSCHDataset(filename="val.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = TubeDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = NSCHDataset(filename="test.hdf5", **dataset_args)
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset

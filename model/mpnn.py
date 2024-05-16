@@ -140,6 +140,7 @@ class MPNN(nn.Module):
             grid (Tensor): [bs, h, w, 2]
 
         Returns:
+            out (Tensor): [bs, h, w, 1]
         """
         bs, h, w, c = inputs.shape
         if c > 1:
