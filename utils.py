@@ -28,7 +28,7 @@ def get_dataset(args):
         val_dataset = NSCHDataset(filename="val.hdf5", **dataset_args)
         if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
             dataset_args.pop("multi_step_size")
-            test_dataset = TubeDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
+            test_dataset = NSCHDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
         else:
             test_dataset = NSCHDataset(filename="test.hdf5", **dataset_args)
     else:
