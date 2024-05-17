@@ -102,7 +102,10 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
             res = torch.cat(res_list, dim=0)
             res = torch.mean(res, dim=0)
         res_dict[name] = res
-    metrics.print_res(res_dict)
+    
+    # print metrics
+    for k in res_dict:
+        print(f"{k}: {res_dict[k]}")
 
     val_l2 /= step
 
