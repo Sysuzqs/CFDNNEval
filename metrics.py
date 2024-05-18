@@ -7,8 +7,8 @@ import numpy as np
 def MSE(pred, target):
     """return mean square error
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): MSE with size (bs, v)
@@ -16,10 +16,10 @@ def MSE(pred, target):
     assert pred.shape == target.shape
     temp_shape = [0, len(pred.shape)-1]
     temp_shape.extend([i for i in range(1, len(pred.shape)-1)])
-    pred = pred.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
-    target = target.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
+    pred = pred.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
+    target = target.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
     nb, nc = pred.shape[0], pred.shape[1]
-    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, x1*x2*...*xd*t)
+    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, t*x1*x2*...*xd)
     res = torch.mean(errors**2, dim=2)
     return res # (bs, v)
 
@@ -27,8 +27,8 @@ def MSE(pred, target):
 def RMSE(pred, target):
     """return root mean square error
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): RMSE with size (bs, v)
@@ -39,8 +39,8 @@ def RMSE(pred, target):
 def L2RE(pred, target):
     """return l2 relative error (nMSE in PDEBench)
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): L2RE with size (bs, v)
@@ -48,10 +48,10 @@ def L2RE(pred, target):
     assert pred.shape == target.shape
     temp_shape = [0, len(pred.shape)-1]
     temp_shape.extend([i for i in range(1, len(pred.shape)-1)])
-    pred = pred.permute(temp_shape) # (bs, x1, ..., xd, t, v) -> (bs, v, x1, ..., xd, t)
-    target = target.permute(temp_shape) # (bs, x1, ..., xd, t, v) -> (bs, v, x1, ..., xd, t)
+    pred = pred.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
+    target = target.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
     nb, nc = pred.shape[0], pred.shape[1]
-    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, x1*x2*...*xd*t)
+    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, t*x1*x2*...*xd)
     res = torch.sum(errors**2, dim=2) / torch.sum(target.reshape([nb, nc, -1])**2, dim=2)
     return torch.sqrt(res) # (bs, v)
 
@@ -59,8 +59,8 @@ def L2RE(pred, target):
 def MaxError(pred, target):
     """return max error in a batch
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): Max error with size (bs, v)
@@ -75,8 +75,8 @@ def MaxError(pred, target):
 def NMSE(pred, target):
     """return normalized MSE in a batch
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): NMSE with size (bs, v)
@@ -84,10 +84,10 @@ def NMSE(pred, target):
     assert pred.shape == target.shape
     temp_shape = [0, len(pred.shape)-1]
     temp_shape.extend([i for i in range(1, len(pred.shape)-1)])
-    pred = pred.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
-    target = target.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
+    pred = pred.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
+    target = target.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
     nb, nc = pred.shape[0], pred.shape[1]
-    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, x1*x2*...*xd*t)
+    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, t*x1*x2*...*xd)
     norm = target.reshape([nb, nc, -1])
     res = torch.sum(errors**2, dim=2) / torch.sum(norm**2, dim=2)
     return res
@@ -95,8 +95,8 @@ def NMSE(pred, target):
 def MAE(pred, target):
     """return mean absolute error in a batch
     Args:
-        pred (Tensor): model output tensor of shape (bs, x1, ..., xd, t, v)
-        target (Tensor): ground truth tensor of shape (bs, x1, ..., xd, t, v)
+        pred (Tensor): model output tensor of shape (bs, t, x1, ..., xd, v)
+        target (Tensor): ground truth tensor of shape (bs, t, x1, ..., xd, v)
 
     Returns:
         res (Tensor): NMSE with size (bs, v)
@@ -104,8 +104,8 @@ def MAE(pred, target):
     assert pred.shape == target.shape
     temp_shape = [0, len(pred.shape)-1]
     temp_shape.extend([i for i in range(1, len(pred.shape)-1)])
-    pred = pred.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
-    target = target.permute(temp_shape) # (bs, x1, ..., xd, v) -> (bs, v, x1, ..., xd)
+    pred = pred.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
+    target = target.permute(temp_shape) # (bs, t, x1, ..., xd, v) -> (bs, v, t, x1, ..., xd)
     nb, nc = pred.shape[0], pred.shape[1]
-    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, x1*x2*...*xd*t)
+    errors = pred.reshape([nb, nc, -1]) - target.reshape([nb, nc, -1]) # (bs, v, t*x1*x2*...*xd)
     return torch.mean(errors.abs(),dim=-1) # (bs, v)

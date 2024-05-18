@@ -81,7 +81,6 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
 
             # infer
             assert hasattr(val_loader.dataset,"multi_step_size")
-            preds = []
             if val_loader.dataset.multi_step_size > 1:
                 preds = []
                 for i in range(val_loader.dataset.multi_step_size):
@@ -121,6 +120,8 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
 
 
 def test_loop(test_loader, model, args, metric_names=METRICS):
+    """compute accumulate loss
+    """
     res_dict = {}
     for name in metric_names:
         res_dict[name] = []
@@ -134,7 +135,6 @@ def test_loop(test_loader, model, args, metric_names=METRICS):
                 for name in metric_names:
                     metric_fn = getattr(metrics, name)
                     res_dict[name].append(metric_fn(preds, targets))
-                pass # TODO
             preds = torch.Tensor().to(device)
             targets = torch.Tensor().to(device)
 
@@ -155,6 +155,11 @@ def test_loop(test_loader, model, args, metric_names=METRICS):
         targets = torch.cat([targets, y.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
 
         prev_case_id = case_id
+    
+    # compute metrics for last case
+    for name in metric_names:
+        metric_fn = getattr(metrics, name)
+        res_dict[name].append(metric_fn(preds, targets))
     
     # post process
     for name in metric_names:
