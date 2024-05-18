@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import random
 
-from dataset import TubeDataset, NSCHDataset
+from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset
 from model import MPNN, GNOT
 
 def setup_seed(seed):
@@ -31,6 +31,14 @@ def get_dataset(args):
             test_dataset = NSCHDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
         else:
             test_dataset = NSCHDataset(filename="test.hdf5", **dataset_args)
+    elif args["flow_name"] == "Darcy":
+        if dataset_args["case_name"] == "PDEBench":
+            dataset_args.pop("case_name")
+            train_dataset = PDEDarcyDataset(split="train", **dataset_args)
+            val_dataset = PDEDarcyDataset(split="val", **dataset_args)
+            test_dataset = PDEDarcyDataset(split="test", **dataset_args)
+        else:
+            raise NotImplementedError
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset
