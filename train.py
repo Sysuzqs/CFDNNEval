@@ -31,19 +31,18 @@ def train_loop(train_loader, model, optimizer, loss_fn, args):
 
         # forward
         assert hasattr(train_loader.dataset, "multi_step_size")
-        preds = []
-        total_loss = 0
         if train_loader.dataset.multi_step_size > 1:
+            preds = []
+            total_loss = 0
             for i in range(train_loader.dataset.multi_step_size):
                 loss, pred, info = model.one_forward_step(x, case_params, mask[:, i], grid, y[:, i].clone(), loss_fn)
                 preds.append(pred)
                 total_loss += loss
                 x = pred
+            preds = torch.stack(preds, dim=1)
         else:
-            loss, pred, info = model.one_forward_step(x, case_params, mask, grid, y.clone(), loss_fn)
-            preds.append(pred)
-            total_loss += loss
-        preds=torch.stack(preds, dim=1)
+            total_loss, preds, info = model.one_forward_step(x, case_params, mask, grid, y.clone(), loss_fn)
+
         # backward
         optimizer.zero_grad()
         total_loss.backward()
@@ -84,14 +83,14 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
             assert hasattr(val_loader.dataset,"multi_step_size")
             preds = []
             if val_loader.dataset.multi_step_size > 1:
+                preds = []
                 for i in range(val_loader.dataset.multi_step_size):
                     pred = model(x, case_params, mask[:, i], grid)
                     preds.append(pred)
                     x = pred
+                preds = torch.stack(preds, dim=1)
             else:
-                pred = model(x, case_params, mask, grid)
-                preds.append(pred)
-            preds=torch.stack(preds, dim=1)
+                preds = model(x, case_params, mask, grid)
 
             # compute metric
             if args["model_name"] == "mpnn":
