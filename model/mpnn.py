@@ -183,9 +183,22 @@ class MPNN(nn.Module):
         b, h, w, c = inputs.shape
         x = torch.reshape(inputs, [-1, c])
         batch = torch.arange(b).unsqueeze(-1).repeat(1, h*w).flatten().long().to(device) # [b*h*w]
-        pos = torch.reshape(grid, [-1, 2])
+        
+        pos = torch.empty_like(grid)
+        # normalize pos
+        for i in range(grid.shape[-1]):
+            max_value, _ = grid[..., i].reshape([b, -1]).max(dim=-1)
+            min_value, _ = grid[..., i].reshape([b, -1]).min(dim=-1)
+            max_value = max_value.unsqueeze(1).unsqueeze(2).repeat([1, h, w])
+            min_value = min_value.unsqueeze(1).unsqueeze(2).repeat([1, h, w])
+            pos[..., i] = (grid[..., i] - min_value) / (max_value - min_value)
+        pos = torch.reshape(pos, [-1, 2])
+
+        # compute edge index
         dx = 1 / min(h, w)
-        edge_index = radius_graph(pos, r=np.sqrt(2)*self.k*dx, batch=batch, loop=False)
+        X, Y = torch.meshgrid(torch.linspace(0, 1, h), torch.linspace(0, 1, w), indexing="xy")
+        logical_pos = torch.stack([X, Y], dim=-1).unsqueeze(0).repeat([b, 1, 1, 1]) # [b, h, w, 2]
+        edge_index = radius_graph(logical_pos.reshape([-1, 2]).to(device), r=np.sqrt(2)*self.k*dx, batch=batch, loop=False)
 
         graph = Data(x=x, edge_index=edge_index)
         graph.pos = pos
