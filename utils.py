@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import random
 
-from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset
+from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset, CavityDataset, TGVDataset
 from model import MPNN, GNOT
 
 def setup_seed(seed):
@@ -39,6 +39,22 @@ def get_dataset(args):
             test_dataset = PDEDarcyDataset(split="test", **dataset_args)
         else:
             raise NotImplementedError
+    elif args["flow_name"] == "cavity":
+        train_dataset = CavityDataset(filename="cavity_train.hdf5", **dataset_args)
+        val_dataset = CavityDataset(filename="cavity_dev.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = CavityDataset(filename="cavity_test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = CavityDataset(filename="cavity_test.hdf5", **dataset_args)
+    elif args["flow_name"] == "TGV":
+        train_dataset = TGVDataset(filename="train.hdf5", **dataset_args)
+        val_dataset = TGVDataset(filename="val.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = TGVDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = TGVDataset(filename="cavity_test.hdf5", **dataset_args)
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset

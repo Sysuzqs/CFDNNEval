@@ -311,7 +311,7 @@ if __name__ == "__main__":
     if cmd_args.batch_size:
         args["dataloader"]["batch_size"] = cmd_args.batch_size
     for k in args["optimizer"]:
-        if hasattr(cmd_args, k) and getattr(cmd_args, k):
+        if hasattr(cmd_args, k) and getattr(cmd_args, k) is not None:
             args["optimizer"][k] = getattr(cmd_args, k)
     print(args)
     
