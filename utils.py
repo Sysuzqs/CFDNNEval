@@ -68,3 +68,24 @@ def get_model(args):
     else:
         raise NotImplementedError
     return model
+
+
+def get_model_name(args):
+    suffix = (f"_lr{args['optimizer']['lr']}" + 
+              f"_bs{args['dataloader']['batch_size']}" + 
+              f"_wd{args['optimizer']['weight_decay']}" +
+              f"_ep{args['epochs']}")
+    if args["model_name"] == "mpnn":
+        model_name = (f"{args['model_name']}" +
+                      f"_layer{args['model']['hidden_layers']}" +
+                      f"_dim{args['model']['hidden_features']}" +
+                      f"_v{args['model']['var_id']}")
+        return model_name + suffix
+    elif args["model_name"] == "gnot":
+        model_name = (f"{args['model_name']}" +
+                      f"_layer{args['model']['n_layers']}" +
+                      f"_dim{args['model']['n_hidden']}" +
+                      f"_head{args['model']['n_head']}")
+        return model_name + suffix
+    else:
+        raise NotImplementedError

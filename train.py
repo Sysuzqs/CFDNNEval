@@ -179,12 +179,7 @@ def main(args):
     # init
     setup_seed(args["seed"])
     checkpoint = torch.load(args["model_path"]) if not args["if_training"] or args["continue_training"] else None
-    saved_model_name = (args["model_name"] + 
-                        f"_lr{args['optimizer']['lr']}" + 
-                        f"_bs{args['dataloader']['batch_size']}" + 
-                        f"_wd{args['optimizer']['weight_decay']}")
-    if args["model_name"] == "mpnn":
-        saved_model_name += f"_v{args['model']['var_id']}"
+    saved_model_name = get_model_name(args)
     saved_dir = os.path.join(args["saved_dir"], args["flow_name"], args["dataset"]["case_name"])
     # check path existence
     if not os.path.exists(saved_dir):
