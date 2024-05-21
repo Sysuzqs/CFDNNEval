@@ -163,3 +163,5 @@ cython_debug/
 *.sh
 /log/
 /checkpoint/
+/config/
+/result/

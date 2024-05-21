@@ -1,4 +1,6 @@
 import argparse
+import h5py
+import json
 import os
 import torch
 import torch.nn as nn
@@ -101,10 +103,39 @@ def main(args):
 
     # test
     print("Start testing.")
-    results = test_loop(test_loader, model, args)
-    for k in results:
-        print(f"{k}: {results[k]}")
-    print("Done.")
+    res_dict = test_loop(test_loader, model, args)
+    for k in res_dict:
+        print(f"{k}: {res_dict[k]}")
+
+    # save results
+    if not cmd_args.save_result:
+        return
+
+    if not os.path.exists(cmd_args.output_dir):
+        os.makedirs(cmd_args.output_dir)
+
+    result_file_path = os.path.join(cmd_args.output_dir, f"{args['flow_name']}.hdf5")
+    print("save result to", result_file_path)
+    with h5py.File(result_file_path, "a") as f:
+        # create group
+        group_name = os.path.join(args["dataset"]["case_name"], args["model_name"])
+        if args["model_name"] == "mpnn":
+            if args["model"]["var_id"] == 0:
+                group_name = os.path.join(group_name, "u")
+            elif args["model"]["var_id"] == 1:
+                group_name =  os.path.join(group_name, "v")
+            else:
+                raise NotImplementedError
+        # write result
+        try:
+            group = f[group_name]
+        except:
+            group = f.create_group(group_name)
+
+        for k in res_dict:
+            if k in group.keys():
+                group.__delitem__(k)
+            group.create_dataset(k, data=res_dict[k].cpu().numpy())
 
 
 if __name__ == "__main__":
@@ -114,9 +145,11 @@ if __name__ == "__main__":
     # parse args from command line
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="Path to config file.")
+    parser.add_argument("--output_dir", type=str, default="result", help="Path to save test results. (default: result)")
     parser.add_argument("-c", "--case_name", type=str, help="Case name.")
     parser.add_argument("--model_path", type=str, help="Checkpoint path to test.")
-    cmd_args = parser.parse_args()
+    parser.add_argument("--save_result", action="store_true", help="Save result if declared.")
+    cmd_args = parser.parse_args() # can be accessed globally
 
     # read default args from config file
     with open(cmd_args.config_file, 'r') as f:
@@ -125,6 +158,8 @@ if __name__ == "__main__":
     # update args using command args
     if cmd_args.model_path:
         args["model_path"] = cmd_args.model_path
+    if cmd_args.case_name:
+        args["dataset"]["case_name"] = cmd_args.case_name
     print(args)
     
     main(args)
