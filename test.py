@@ -120,12 +120,31 @@ def main(args):
         # create group
         group_name = os.path.join(args["dataset"]["case_name"], args["model_name"])
         if args["model_name"] == "mpnn":
-            if args["model"]["var_id"] == 0:
-                group_name = os.path.join(group_name, "u")
-            elif args["model"]["var_id"] == 1:
-                group_name =  os.path.join(group_name, "v")
+            if args['flow_name'] == "NSCH":
+                if args["model"]["var_id"] == 0:
+                    group_name = os.path.join(group_name, "f")
+                elif args["model"]["var_id"] == 1:
+                    group_name =  os.path.join(group_name, "u")
+                elif args["model"]["var_id"] == 2:
+                    group_name =  os.path.join(group_name, "v")
+                else:
+                    raise NotImplementedError
+            elif args['flow_name'] == "cavity":
+                if args["model"]["var_id"] == 0:
+                    group_name = os.path.join(group_name, "u")
+                elif args["model"]["var_id"] == 1:
+                    group_name =  os.path.join(group_name, "v")
+                elif args["model"]["var_id"] == 2:
+                    group_name =  os.path.join(group_name, "p")
+                else:
+                    raise NotImplementedError
             else:
-                raise NotImplementedError
+                if args["model"]["var_id"] == 0:
+                    group_name = os.path.join(group_name, "u")
+                elif args["model"]["var_id"] == 1:
+                    group_name =  os.path.join(group_name, "v")
+                else:
+                    raise NotImplementedError
         # write result
         try:
             group = f[group_name]
