@@ -13,9 +13,8 @@ from utils import *
 
 METRICS = ['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE']
 
-def test_loop(test_loader, model, args, metric_names=METRICS):
-    """compute accumulate loss
-    """
+def test_loop(test_loader, model, args, metric_names=METRICS, test_type="accumulate"):
+    assert test_type in ["frame", "accumulate"]
     res_dict = {}
     for name in metric_names:
         res_dict[name] = []
@@ -39,7 +38,7 @@ def test_loop(test_loader, model, args, metric_names=METRICS):
             preds = torch.Tensor().to(device)
             targets = torch.Tensor().to(device)
 
-        x = x.to(device) # x: input tensor (The previous time step) [b, x1, ..., xd, v]
+        x = x.to(device) if test_type == "frame" or prev_case_id != case_id else preds[:, -1]
         y = y.to(device) # y: target tensor (The latter time step) [b, x1, ..., xd, v]
         grid = grid.to(device) # grid: meshgrid [b, x1, ..., xd, dims]
         mask = mask.to(device) # mask [b, x1, ..., xd, 1]
@@ -103,7 +102,7 @@ def main(args):
 
     # test
     print("Start testing.")
-    res_dict = test_loop(test_loader, model, args)
+    res_dict = test_loop(test_loader, model, args, test_type=cmd_args.test_type)
     for k in res_dict:
         print(f"{k}: {res_dict[k]}")
 
@@ -167,6 +166,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="result", help="Path to save test results. (default: result)")
     parser.add_argument("-c", "--case_name", type=str, help="Case name.")
     parser.add_argument("--model_path", type=str, help="Checkpoint path to test.")
+    parser.add_argument("--test_type", type=str, default="accumulate", help="Checkpoint path to test.")
     parser.add_argument("--save_result", action="store_true", help="Save result if declared.")
     cmd_args = parser.parse_args() # can be accessed globally
 
