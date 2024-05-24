@@ -366,25 +366,38 @@ class GNOT(nn.Module):
         """
         assert grid.shape[-1] == self.space_dim
         # preprocess
-        bs, h, w, c = inputs.shape
-        inputs = torch.reshape(inputs, [bs, h*w, c])
-        grid = torch.reshape(grid, [bs, h*w, -1])
-        inp_fn = [torch.cat([grid, inputs], dim=-1)] # modify here
+        if len(inputs.shape) == 4:
+            input_type = "grid"
+            bs, h, w, c = inputs.shape
+            nx = h*w
+        else:
+            assert len(inputs.shape) == 3
+            input_type = "points"
+            bs, nx, c = inputs.shape
+        inputs = torch.reshape(inputs, [bs, nx, c])
+        grid = torch.reshape(grid, [bs, nx, -1])
+        inp_fn = [torch.cat([grid, inputs], dim=-1)]
         pos = grid
 
         # trunk
-        x = torch.cat([grid, case_params.reshape([bs, h*w, -1])], dim=-1)
+        x = torch.cat([grid, case_params.reshape([bs, nx, -1])], dim=-1)
         x = self.trunk_mlp(x)
 
         # branch
         z = MultipleTensors([self.branch_mlps[i](inp_fn[i]) for i in range(self.n_inputs)])
         for block in self.blocks:
             x = block(x, z, pos)
-
+        
         # output
         out = self.out_mlp(x)
-
-        return out.reshape([bs, h, w, c])
+        
+        if input_type == "grid":
+            out = out.reshape([bs, h, w, c])
+        else:
+            assert input_type == "points"
+            out = out.reshape([bs, nx, c])
+        
+        return out
     
     def one_forward_step(self, inputs, case_params, mask, grid, label, loss_fn=None, args=None):
         """
@@ -404,25 +417,38 @@ class GNOT(nn.Module):
         """
         assert grid.shape[-1] == self.space_dim
         # preprocess
-        bs, h, w, c = inputs.shape
-        inputs = torch.reshape(inputs, [bs, h*w, c])
-        grid = torch.reshape(grid, [bs, h*w, -1])
-        inp_fn = [torch.cat([grid, inputs], dim=-1)] # modify here
+        if len(inputs.shape) == 4:
+            input_type = "grid"
+            bs, h, w, c = inputs.shape
+            nx = h*w
+        else:
+            assert len(inputs.shape) == 3
+            input_type = "points"
+            bs, nx, c = inputs.shape
+        inputs = torch.reshape(inputs, [bs, nx, c])
+        grid = torch.reshape(grid, [bs, nx, -1])
+        inp_fn = [torch.cat([grid, inputs], dim=-1)]
         pos = grid
 
         # trunk
-        x = torch.cat([grid, case_params.reshape([bs, h*w, -1])], dim=-1)
+        x = torch.cat([grid, case_params.reshape([bs, nx, -1])], dim=-1)
         x = self.trunk_mlp(x)
 
         # branch
         z = MultipleTensors([self.branch_mlps[i](inp_fn[i]) for i in range(self.n_inputs)])
         for block in self.blocks:
             x = block(x, z, pos)
-
+        
         # output
         out = self.out_mlp(x) # [bs, h*w, c]
+        
+        if input_type == "grid":
+            out = out.reshape([bs, h, w, c])
+        else:
+            assert input_type == "points"
+            out = out.reshape([bs, nx, c])
 
         # loss
         loss = loss_fn(out.reshape([bs, -1]), label.reshape([bs, -1]))
 
-        return loss, out.reshape([bs, h, w, c]), {}
+        return loss, out, {}

@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import random
 
-from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset, CavityDataset, TGVDataset
-from model import MPNN, GNOT
+from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset, CavityDataset, TGVDataset, IRCylinderDataset
+from model import MPNN, GNOT, MPNNIrregular
 
 def setup_seed(seed):
     torch.manual_seed(seed)  # CPU
@@ -55,6 +55,14 @@ def get_dataset(args):
             test_dataset = TGVDataset(filename="test.hdf5", multi_step_size=1, **dataset_args)
         else:
             test_dataset = TGVDataset(filename="cavity_test.hdf5", **dataset_args)
+    elif args["flow_name"] == "cylinder":
+        train_dataset = IRCylinderDataset(filename="cylinder_train.hdf5", **dataset_args)
+        val_dataset = IRCylinderDataset(filename="cylinder_dev.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = IRCylinderDataset(filename="cylinder_test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = IRCylinderDataset(filename="cylinder_test.hdf5", **dataset_args)
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset
@@ -63,6 +71,8 @@ def get_dataset(args):
 def get_model(args):
     if args["model_name"] == "mpnn":
         model = MPNN(**args["model"])
+    elif args["model_name"] == "mpnn_irregular":
+        model = MPNNIrregular(**args["model"])
     elif args["model_name"] == "gnot":
         model = GNOT(**args["model"])
     else:
@@ -75,7 +85,7 @@ def get_model_name(args):
               f"_bs{args['dataloader']['batch_size']}" + 
               f"_wd{args['optimizer']['weight_decay']}" +
               f"_ep{args['epochs']}")
-    if args["model_name"] == "mpnn":
+    if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
         model_name = (f"{args['model_name']}" +
                       f"_layer{args['model']['hidden_layers']}" +
                       f"_dim{args['model']['hidden_features']}" +
