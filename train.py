@@ -49,7 +49,7 @@ def train_loop(train_loader, model, optimizer, loss_fn, args):
         optimizer.step()
 
         # record
-        if args["model_name"] == "mpnn":
+        if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
             y = y[..., args["model"]["var_id"]].unsqueeze(-1)
         train_loss += total_loss.item()
         train_l_inf = max(train_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
@@ -92,7 +92,7 @@ def val_loop(val_loader, model, loss_fn, args, metric_names=METRICS):
                 preds = model(x, case_params, mask, grid)
 
             # compute metric
-            if args["model_name"] == "mpnn":
+            if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
                 y = y[..., args["model"]["var_id"]].unsqueeze(-1)
             val_l2 += loss_fn(preds.reshape(batch_size, -1), y.reshape(batch_size, -1)).item()
             val_l_inf = max(val_l_inf, torch.max((torch.abs(preds.reshape(batch_size, -1) - y.reshape(batch_size, -1)))))
@@ -150,7 +150,7 @@ def test_loop(test_loader, model, args, metric_names=METRICS):
 
         # update
         preds = torch.cat([preds, pred.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
-        if args["model_name"] == "mpnn":
+        if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
             y = y[..., args["model"]["var_id"]].unsqueeze(-1) # [bs, t, h, w, 1]
         targets = torch.cat([targets, y.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
 

@@ -5,7 +5,7 @@ from torch import Tensor
 from typing import Optional, List
 from torch_geometric.nn import MessagePassing, InstanceNorm
 from torch_geometric.data import Data
-from torch_cluster import radius_graph
+from torch_cluster import radius_graph, knn_graph
 
 
 class Swish(nn.Module):
@@ -177,7 +177,7 @@ class MPNN(nn.Module):
             grid (Tensor): [bs, h, w, 2]
         
         Returns:
-
+            graph: graph data
         """
         device = inputs.device
         b, h, w, c = inputs.shape
@@ -209,11 +209,20 @@ class MPNN(nn.Module):
         return graph
     
     def one_forward_step(self, x, case_params, mask, grid, y, loss_fn=None, args=None):
-        """
+        """train step
         Args:
+            x (Tensor): input with size [bs, h, w, c]
+            case_params (Tensor): case parameters with size [bs, h, w, num_case_params]
+            mask (Tensor): mask with size [bs, h, w, 1]
+            grid (Tensor): grid with size [bs, h, w, 2]
+            y (Tensor): label with size [bs, h, w, c]
+            loss_fn (nn.Module): loss function
+            args (dict): other arguments
         
         Returns:
-
+            loss (Tensor): loss value
+            out (Tensor): output with size [bs, h, w, 1]
+            info (dict): other information
         """
         bs, h, w, c = x.shape
         if c > 1:
@@ -242,3 +251,169 @@ class MPNN(nn.Module):
         loss = loss_fn(out.reshape([bs, -1]), y.reshape([bs, -1]))
 
         return loss, out.reshape([bs, h, w, -1]), {}
+    
+
+
+class MPNNIrregular(nn.Module):
+    def __init__(self, 
+                 neighbors: int = 1,
+                 delta_t: float = 0.1,
+                 hidden_features: int = 128,
+                 hidden_layers: int = 6,
+                 n_params: int = 5,
+                 var_id: int = 0):
+        super().__init__()
+        self.k = neighbors
+        self.dt = delta_t
+        self.hidden_features = hidden_features
+        self.hidden_layers = hidden_layers
+        self.n_params = n_params
+        self.var_id = var_id
+
+        # encoder
+        self.embedding_mlp = nn.Sequential(
+            nn.Linear(1+2+n_params, self.hidden_features), # f([u, x, y, parmas])
+            Swish(),
+            nn.Linear(self.hidden_features, self.hidden_features),
+            Swish()
+            )
+
+        # processor
+        self.gnn_layers = torch.nn.ModuleList(modules=(GNN_Layer(
+            in_features=self.hidden_features,
+            hidden_features=self.hidden_features,
+            out_features=self.hidden_features,
+            time_window=1,
+            spatial_dim=2,
+            n_variables=n_params
+            ) for _ in range(self.hidden_layers)))
+        
+        # decoder
+        self.output_mlp = nn.Sequential(
+            nn.Linear(self.hidden_features, self.hidden_features // 2),
+            Swish(),
+            nn.Linear(self.hidden_features // 2, 1)
+            )
+
+    def forward(
+        self,
+        inputs,
+        case_params,
+        mask,
+        grid
+        ):
+        """
+        Args:
+            inputs (Tensor): input with size [bs, nx, c]
+            case_params (Tensor): case parameters with size [bs, nx,, num_case_params]
+            mask (Tensor): mask with size [bs, nx, 1]
+            grid (Tensor): grid with size [bs, nx, 2]
+
+        Returns:
+            out (Tensor): output with size [bs, nx, 1]
+        """
+        bs, nx, c = inputs.shape
+        if c > 1:
+            inputs = inputs[..., self.var_id].unsqueeze(-1)
+        
+        # pre-process data
+        graph = self.create_graph(inputs, case_params, grid) # TODO
+        u = graph.x # [bs*nx, 1]
+        x_pos = graph.pos # [bs*nx, 2]
+        edge_index = graph.edge_index # [2, num_edges]
+        batch = graph.batch # [bs*nx]
+        params = graph.params # [bs*nx, num_params]
+
+        # encode
+        node_input = torch.cat([u, x_pos, params], dim=-1)
+        f = self.embedding_mlp(node_input) # [bs*nx, hidden_dim]
+        # process
+        for i in range(self.hidden_layers):
+            f = self.gnn_layers[i](f, u, x_pos, params, edge_index, batch) # [bs*nx, hidden_dim]
+        # decode
+        diff = self.output_mlp(f) # [bs*nx, 1]
+        out = u + self.dt * diff # [bs*nx, 1]
+
+        return out.reshape([bs, nx, -1])
+    
+    def create_graph(self, 
+                     inputs, 
+                     case_params,
+                     grid):
+        """
+        Args:
+            inputs (Tensor): [bs, nx, 1]
+            case_params (Tensor): [bs, nx,, num_case_params]
+            grid (Tensor): [bs, nx, 2]
+        
+        Returns:
+            graph: graph data
+        """
+        device = inputs.device
+        bs, nx, c = inputs.shape
+        x = torch.reshape(inputs, [-1, c]) # [bs*nx, 1]
+        batch = torch.arange(bs).unsqueeze(-1).repeat(1, nx).flatten().long().to(device) # [bs*nx]
+        
+        pos = torch.empty_like(grid) # [bs, nx, 2]
+        # normalize pos
+        for i in range(grid.shape[-1]):
+            max_value, _ = grid[..., i].max(dim=-1) # [bs]
+            min_value, _ = grid[..., i].min(dim=-1)
+            max_value = max_value.unsqueeze(1).repeat([1, nx]) # [bs, nx]
+            min_value = min_value.unsqueeze(1).repeat([1, nx])
+            pos[..., i] = (grid[..., i] - min_value) / (max_value - min_value)
+        pos = torch.reshape(pos, [-1, 2]) # [bs*nx, 2]
+
+        edge_index = knn_graph(pos.to(device), k=self.k, batch=batch, loop=False)
+
+        graph = Data(x=x, edge_index=edge_index)
+        graph.pos = pos
+        graph.batch = batch
+        graph.params = torch.reshape(case_params, [-1, self.n_params])
+        graph.validate(raise_on_error=True)
+    
+        return graph
+    
+    def one_forward_step(self, x, case_params, mask, grid, y, loss_fn=None, args=None):
+        """train step
+        Args:
+            x (Tensor): input with size [bs, nx, c]
+            case_params (Tensor): case parameters with size [bs, nx,, num_case_params]
+            mask (Tensor): mask with size [bs, nx, 1]
+            grid (Tensor): grid with size [bs, nx, 2]
+            y (Tensor): label with size [bs, nx, c]
+            loss_fn (nn.Module): loss function
+            args (dict): other arguments
+
+        Returns: 
+            loss (Tensor): loss value
+            out (Tensor): out with size [bs, nx, 1]
+            info (dict): other information
+        """
+        bs, nx, c = x.shape
+        if c > 1:
+            x = x[..., self.var_id].unsqueeze(-1)
+        y = y[..., self.var_id].unsqueeze(-1) # [bs, nx, 1]
+        
+        # pre-process data
+        graph = self.create_graph(x, case_params, grid)
+        u = graph.x # [bs*nx, 1]
+        x_pos = graph.pos # [bs*nx, 2]
+        edge_index = graph.edge_index # [2, num_edges]
+        batch = graph.batch # [bs*nx]
+        params = graph.params # [bs*nx, num_params]
+
+        # encode
+        node_input = torch.cat([u, x_pos, params], dim=-1)
+        f = self.embedding_mlp(node_input) # [bs*nx, hidden_dim]
+        # process
+        for i in range(self.hidden_layers):
+            f = self.gnn_layers[i](f, u, x_pos, params, edge_index, batch) # [bs*nx, hidden_dim]
+        # decode
+        diff = self.output_mlp(f) # [bs*nx, 1]
+        out = u + self.dt * diff # [bs*nx, 1]
+
+        # loss
+        loss = loss_fn(out.reshape([bs, -1]), y.reshape([bs, -1]))
+
+        return loss, out.reshape([bs, nx, -1]), {}
