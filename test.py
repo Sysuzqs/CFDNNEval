@@ -50,7 +50,7 @@ def test_loop(test_loader, model, args, metric_names=METRICS, test_type="accumul
 
         # update
         preds = torch.cat([preds, pred.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
-        if args["model_name"] == "mpnn":
+        if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
             y = y[..., args["model"]["var_id"]].unsqueeze(-1) # [bs, t, h, w, 1]
         targets = torch.cat([targets, y.unsqueeze(1)], dim=1) # [bs, t, h, w, c] (mpnn: [bs, t, h, w, 1])
 
@@ -118,7 +118,7 @@ def main(args):
     with h5py.File(result_file_path, "a") as f:
         # create group
         group_name = os.path.join(args["dataset"]["case_name"], args["model_name"])
-        if args["model_name"] == "mpnn":
+        if args["model_name"] == "mpnn" or args["model_name"] == "mpnn_irregular":
             if args['flow_name'] == "NSCH":
                 if args["model"]["var_id"] == 0:
                     group_name = os.path.join(group_name, "f")
@@ -128,20 +128,21 @@ def main(args):
                     group_name =  os.path.join(group_name, "v")
                 else:
                     raise NotImplementedError
-            elif args['flow_name'] == "cavity":
+            elif args['flow_name'] == "tube":
+                if args["model"]["var_id"] == 0:
+                    group_name = os.path.join(group_name, "u")
+                elif args["model"]["var_id"] == 1:
+                    group_name =  os.path.join(group_name, "v")
+                else:
+                    raise NotImplementedError
+            else:
+                assert args['flow_name'] in ["cavity", "TGV", "cylinder"]
                 if args["model"]["var_id"] == 0:
                     group_name = os.path.join(group_name, "u")
                 elif args["model"]["var_id"] == 1:
                     group_name =  os.path.join(group_name, "v")
                 elif args["model"]["var_id"] == 2:
                     group_name =  os.path.join(group_name, "p")
-                else:
-                    raise NotImplementedError
-            else:
-                if args["model"]["var_id"] == 0:
-                    group_name = os.path.join(group_name, "u")
-                elif args["model"]["var_id"] == 1:
-                    group_name =  os.path.join(group_name, "v")
                 else:
                     raise NotImplementedError
         # write result
