@@ -14,7 +14,7 @@ def setup_seed(seed):
 
 
 def get_dataset(args):
-    dataset_args = args["dataset"]
+    dataset_args = args["dataset"].copy()
     if args["flow_name"] == "tube":
         train_dataset = TubeDataset(filename="tube_train.hdf5", **dataset_args)
         val_dataset = TubeDataset(filename="tube_dev.hdf5", **dataset_args)
