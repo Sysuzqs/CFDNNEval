@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import random
 
-from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset, CavityDataset, TGVDataset, IRCylinderDataset
+from dataset import TubeDataset, NSCHDataset, PDEDarcyDataset, CavityDataset, TGVDataset, IRCylinderDataset, IRHillsDataset
 from model import MPNN, GNOT, MPNNIrregular
 
 def setup_seed(seed):
@@ -63,6 +63,14 @@ def get_dataset(args):
             test_dataset = IRCylinderDataset(filename="cylinder_test.hdf5", multi_step_size=1, **dataset_args)
         else:
             test_dataset = IRCylinderDataset(filename="cylinder_test.hdf5", **dataset_args)
+    elif args["flow_name"] == "hills":
+        train_dataset = IRHillsDataset(filename="hills_train.hdf5", **dataset_args)
+        val_dataset = IRHillsDataset(filename="hills_dev.hdf5", **dataset_args)
+        if "multi_step_size" in dataset_args and dataset_args["multi_step_size"] > 1:
+            dataset_args.pop("multi_step_size")
+            test_dataset = IRHillsDataset(filename="hills_test.hdf5", multi_step_size=1, **dataset_args)
+        else:
+            test_dataset = IRHillsDataset(filename="hills_test.hdf5", **dataset_args)
     else:
         raise NotImplementedError
     return train_dataset, val_dataset, test_dataset
