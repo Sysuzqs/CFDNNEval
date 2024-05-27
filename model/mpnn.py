@@ -261,7 +261,8 @@ class MPNNIrregular(nn.Module):
                  hidden_features: int = 128,
                  hidden_layers: int = 6,
                  n_params: int = 5,
-                 var_id: int = 0):
+                 var_id: int = 0,
+                 spatial_dim: int = 2):
         super().__init__()
         self.k = neighbors
         self.dt = delta_t
@@ -269,10 +270,11 @@ class MPNNIrregular(nn.Module):
         self.hidden_layers = hidden_layers
         self.n_params = n_params
         self.var_id = var_id
+        self.spatial_dim = spatial_dim
 
         # encoder
         self.embedding_mlp = nn.Sequential(
-            nn.Linear(1+2+n_params, self.hidden_features), # f([u, x, y, parmas])
+            nn.Linear(1+spatial_dim+n_params, self.hidden_features), # f([u, x, y, parmas])
             Swish(),
             nn.Linear(self.hidden_features, self.hidden_features),
             Swish()
@@ -284,7 +286,7 @@ class MPNNIrregular(nn.Module):
             hidden_features=self.hidden_features,
             out_features=self.hidden_features,
             time_window=1,
-            spatial_dim=2,
+            spatial_dim=spatial_dim,
             n_variables=n_params
             ) for _ in range(self.hidden_layers)))
         
@@ -307,7 +309,7 @@ class MPNNIrregular(nn.Module):
             inputs (Tensor): input with size [bs, nx, c]
             case_params (Tensor): case parameters with size [bs, nx,, num_case_params]
             mask (Tensor): mask with size [bs, nx, 1]
-            grid (Tensor): grid with size [bs, nx, 2]
+            grid (Tensor): grid with size [bs, nx, spatial_dim]
 
         Returns:
             out (Tensor): output with size [bs, nx, 1]
@@ -319,7 +321,7 @@ class MPNNIrregular(nn.Module):
         # pre-process data
         graph = self.create_graph(inputs, case_params, grid) # TODO
         u = graph.x # [bs*nx, 1]
-        x_pos = graph.pos # [bs*nx, 2]
+        x_pos = graph.pos # [bs*nx, spatial_dim]
         edge_index = graph.edge_index # [2, num_edges]
         batch = graph.batch # [bs*nx]
         params = graph.params # [bs*nx, num_params]
@@ -344,7 +346,7 @@ class MPNNIrregular(nn.Module):
         Args:
             inputs (Tensor): [bs, nx, 1]
             case_params (Tensor): [bs, nx,, num_case_params]
-            grid (Tensor): [bs, nx, 2]
+            grid (Tensor): [bs, nx, spatial_dim]
         
         Returns:
             graph: graph data
@@ -354,7 +356,7 @@ class MPNNIrregular(nn.Module):
         x = torch.reshape(inputs, [-1, c]) # [bs*nx, 1]
         batch = torch.arange(bs).unsqueeze(-1).repeat(1, nx).flatten().long().to(device) # [bs*nx]
         
-        pos = torch.empty_like(grid) # [bs, nx, 2]
+        pos = torch.empty_like(grid) # [bs, nx, spatial_dim]
         # normalize pos
         for i in range(grid.shape[-1]):
             max_value, _ = grid[..., i].max(dim=-1) # [bs]
@@ -362,7 +364,7 @@ class MPNNIrregular(nn.Module):
             max_value = max_value.unsqueeze(1).repeat([1, nx]) # [bs, nx]
             min_value = min_value.unsqueeze(1).repeat([1, nx])
             pos[..., i] = (grid[..., i] - min_value) / (max_value - min_value)
-        pos = torch.reshape(pos, [-1, 2]) # [bs*nx, 2]
+        pos = torch.reshape(pos, [-1, self.spatial_dim]) # [bs*nx, spatial_dim]
 
         edge_index = knn_graph(pos.to(device), k=self.k, batch=batch, loop=False)
 
@@ -380,7 +382,7 @@ class MPNNIrregular(nn.Module):
             x (Tensor): input with size [bs, nx, c]
             case_params (Tensor): case parameters with size [bs, nx,, num_case_params]
             mask (Tensor): mask with size [bs, nx, 1]
-            grid (Tensor): grid with size [bs, nx, 2]
+            grid (Tensor): grid with size [bs, nx, spatial_dim]
             y (Tensor): label with size [bs, nx, c]
             loss_fn (nn.Module): loss function
             args (dict): other arguments
@@ -398,7 +400,7 @@ class MPNNIrregular(nn.Module):
         # pre-process data
         graph = self.create_graph(x, case_params, grid)
         u = graph.x # [bs*nx, 1]
-        x_pos = graph.pos # [bs*nx, 2]
+        x_pos = graph.pos # [bs*nx, spatial_dim]
         edge_index = graph.edge_index # [2, num_edges]
         batch = graph.batch # [bs*nx]
         params = graph.params # [bs*nx, num_params]
