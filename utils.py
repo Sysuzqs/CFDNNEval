@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import random
-from model import FNO2d, FNO3d, LSM_2d, LSM_3d, AutoDeepONet, UNO2d, KNO2d, UNet2d, LSM_2d_ir, geoFNO2d
+from model import FNO2d, FNO3d, LSM_2d, LSM_3d, AutoDeepONet, AutoDeepONet_3d, UNO2d, UNO3d, KNO2d, KNO3d, UNet2d, UNet3d, LSM_2d_ir, geoFNO2d, Oformer
 from dataset import *
 import os
 import shutil
@@ -303,42 +303,25 @@ def get_dataset(args):
         else:
             test_ms_data = None
     elif args['flow_name'] == 'Darcy':
-        if dataset_args["case_name"] == "PDEBench":
-            train_data = PDEDarcyDataset(split="train",
-                                         saved_folder= dataset_args["saved_folder"], 
-                                         reduced_batch=dataset_args["reduced_batch"],
-                                        reduced_resolution=dataset_args["reduced_resolution"],
-                                        reshape_parameters=dataset_args.get('reshape_parameters', True))
-            val_data = PDEDarcyDataset(split="val", saved_folder= dataset_args["saved_folder"], 
-                                         reduced_batch=dataset_args["reduced_batch"],
-                                        reduced_resolution=dataset_args["reduced_resolution"],
-                                        reshape_parameters=dataset_args.get('reshape_parameters', True))
-            test_data = PDEDarcyDataset(split="test", saved_folder= dataset_args["saved_folder"], 
-                                         reduced_batch=dataset_args["reduced_batch"],
-                                        reduced_resolution=dataset_args["reduced_resolution"],
-                                        reshape_parameters=dataset_args.get('reshape_parameters', True))
-        else:
-            train_data = DarcyDataset(
-                                    filename=args['flow_name'] + '_train.hdf5',
-                                    saved_folder=dataset_args['saved_folder'],
-                                    case_name=dataset_args['case_name'],
-                                    reduced_resolution=dataset_args["reduced_resolution"],
+        filename = "2D_DarcyFlow_beta1.0_Train.hdf5" if dataset_args["case_name"] == "PDEBench" else "darcy.hdf5"
+        train_data = PDEDarcyDataset(split="train",
+                                    filename=filename,
+                                    saved_folder= dataset_args["saved_folder"], 
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    )
-            val_data = DarcyDataset(
-                                    filename=args['flow_name'] + '_dev.hdf5',
-                                    saved_folder=dataset_args['saved_folder'],
-                                    case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
+                                    reshape_parameters=dataset_args.get('reshape_parameters', True))
+        val_data = PDEDarcyDataset(split="val", 
+                                    filename=filename,
+                                    saved_folder= dataset_args["saved_folder"], 
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    )
-            test_data = DarcyDataset(
-                                    filename=args['flow_name'] + '_test.hdf5',
-                                    saved_folder=dataset_args['saved_folder'],
-                                    case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
+                                    reshape_parameters=dataset_args.get('reshape_parameters', True))
+        test_data = PDEDarcyDataset(split="test", 
+                                    filename=filename,
+                                    saved_folder= dataset_args["saved_folder"], 
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    )
+                                    reduced_resolution=dataset_args["reduced_resolution"],
+                                    reshape_parameters=dataset_args.get('reshape_parameters', True))
         test_ms_data = None
     elif args["flow_name"] == "hills":
         train_data = HillsDataset(
@@ -349,7 +332,8 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
-                                multi_step_size= dataset_args['multi_step_size']
+                                multi_step_size= dataset_args['multi_step_size'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         val_data = HillsDataset(
                                 filename=args['flow_name'] + '_dev.hdf5',
@@ -359,7 +343,8 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
-                                multi_step_size= dataset_args['multi_step_size']
+                                multi_step_size= dataset_args['multi_step_size'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         test_data = HillsDataset(
                                 filename=args['flow_name'] + '_test.hdf5',
@@ -369,6 +354,7 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         if dataset_args['multi_step_size'] > 1:
             test_ms_data = HillsDataset(
@@ -379,7 +365,8 @@ def get_dataset(args):
                                     reduced_batch=dataset_args["reduced_batch"],
                                     stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
-                                    multi_step_size= dataset_args['multi_step_size']
+                                    multi_step_size= dataset_args['multi_step_size'],
+                                    reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         else:
             test_ms_data = None
@@ -392,7 +379,8 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
-                                multi_step_size= dataset_args['multi_step_size']
+                                multi_step_size= dataset_args['multi_step_size'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         val_data = IRHillsDataset(
                                 filename=args['flow_name'][2:] + '_dev.hdf5',
@@ -402,7 +390,8 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
-                                multi_step_size= dataset_args['multi_step_size']
+                                multi_step_size= dataset_args['multi_step_size'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         test_data = IRHillsDataset(
                                 filename=args['flow_name'][2:] + '_test.hdf5',
@@ -412,6 +401,7 @@ def get_dataset(args):
                                 reduced_batch=dataset_args["reduced_batch"],
                                 stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
+                                reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         if dataset_args['multi_step_size'] > 1:
             test_ms_data = IRHillsDataset(
@@ -422,7 +412,8 @@ def get_dataset(args):
                                     reduced_batch=dataset_args["reduced_batch"],
                                     stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
-                                    multi_step_size= dataset_args['multi_step_size']
+                                    multi_step_size= dataset_args['multi_step_size'],
+                                    reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         else:
             test_ms_data = None
@@ -493,6 +484,7 @@ def get_model(spatial_dim, n_case_params, args):
                         trunk_depth=model_args["trunk_depth"],
                         branch_depth=model_args["branch_depth"],
                         act_name=model_args["act_fn"],
+                        autoregressive_mode=False
                         )
             elif model_name == 'UNO':
                 model = UNO2d(in_channels=model_args["in_channels"],
@@ -504,6 +496,12 @@ def get_model(spatial_dim, n_case_params, args):
                         out_channels=model_args['out_channels'],
                         init_features=model_args['init_features'],
                         n_case_params = n_case_params)
+            elif model_name == 'OFormer':
+                model = Oformer(input_ch=model_args['inputs_channel']+n_case_params,
+                                output_ch=model_args['outputs_channel'],
+                                n_tolx=args["model"]["num_points"],
+                                multi_step_size=args["dataset"]["multi_step_size"],
+                                dim=2)
         else:
             #TODO
             pass
@@ -582,6 +580,12 @@ def get_model(spatial_dim, n_case_params, args):
                         out_channels=model_args['out_channels'],
                         init_features=model_args['init_features'],
                         n_case_params = n_case_params)
+            elif model_name == 'OFormer':
+                model = Oformer(input_ch=model_args['inputs_channel']+n_case_params,
+                                output_ch=model_args['outputs_channel'],
+                                n_tolx=args["model"]["num_points"],
+                                multi_step_size=args["dataset"]["multi_step_size"],
+                                dim=2)
 
         elif spatial_dim == 3:
             if model_name == "FNO":
@@ -604,7 +608,57 @@ def get_model(spatial_dim, n_case_params, args):
                         patch_size=model_args['patch_size'],
                         padding=model_args['padding'],
                         n_case_params = n_case_params)
+            elif model_name ==model_name == "AutoDeepONet":
+                if model_args["irregular_geo"]:
+                    model = AutoDeepONet_3d(
+                            branch_dim= model_args["num_points"]*model_args['inputs_channel']+n_case_params,
+                            trunk_dim =3, # (x,y,z)
+                            out_channel=model_args['outputs_channel'],
+                            width=model_args["width"],
+                            trunk_depth=model_args["trunk_depth"],
+                            branch_depth=model_args["branch_depth"],
+                            act_name=model_args["act_fn"],
+                            irregular_geometry=True
+                            )
+                else:
+                    model = AutoDeepONet_3d(
+                            branch_dim= model_args["h"]*model_args["w"]*model_args["d"]*model_args['inputs_channel']+n_case_params,
+                            trunk_dim =3, # (x,y,z)
+                            out_channel=model_args['outputs_channel'],
+                            width=model_args["width"],
+                            trunk_depth=model_args["trunk_depth"],
+                            branch_depth=model_args["branch_depth"],
+                            act_name=model_args["act_fn"],
+                            )
+            elif model_name == 'UNO':
+                model = UNO3d(in_channels=model_args["in_channels"],
+                          out_channels = model_args["out_channels"],
+                          width=model_args["width"],
+                          n_case_params = n_case_params)
+            elif model_name == 'KNO':
+                model_args_copy = model_args.copy()
+                model_args_copy.pop('num_points')
+                model = KNO3d(n_case_params=n_case_params, **model_args_copy)
+            elif model_name == 'UNet':
+                model = UNet3d(in_channels=model_args['in_channels'],
+                        out_channels=model_args['out_channels'],
+                        init_features=model_args['init_features'],
+                        n_case_params = n_case_params)
     return model
+
+def get_min_max(dataloader):
+    for i, batch in enumerate(dataloader):
+        x = batch[0] # inputs [bs, h, w, c] or [bs, nx, c]
+        c = x.shape[-1]
+        if i == 0:  # initialize
+            channel_min, _ = x.view(-1, c).min(dim=0)
+            channel_max, _ = x.view(-1, c).max(dim=0)
+        else:
+            batch_max_value, _ = x.view(-1,c).max(dim=0)
+            batch_min_value, _ = x.view(-1,c).min(dim=0)
+            channel_min = torch.minimum(channel_min, batch_min_value)
+            channel_max = torch.maximum(channel_max, batch_max_value)
+    return channel_min, channel_max
 
 
 def save_checkpoint(state, save_path: str, is_best: bool = False, max_keep: int = None):

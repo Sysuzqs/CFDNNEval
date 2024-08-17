@@ -7,12 +7,12 @@ class TGVDataset(Dataset):
     def __init__(self,
                  filename,
                  saved_folder='../data/',
-                 case_name = 'all',
+                 case_name = 'Re_ReD',
                  reduced_resolution = 1,
                  reduced_batch = 1,
                  num_samples_max = -1,
                  norm_props = True,
-                 stable_state_diff = 0.001,
+                 stable_state_diff = 0.0001,
                  reshape_parameters= True,
                  multi_step_size=1,
                  ):
@@ -129,7 +129,10 @@ class TGVDataset(Dataset):
         """
         physic_prop = physic_prop/np.array([1000.0,15.707,1.0])  #re,edge,nu
         
-    
+    def apply_norm(self, channel_min, channel_max):
+        self.inputs = (self.inputs - channel_min) / (channel_max - channel_min)
+        self.labels = (self.labels - channel_min) / (channel_max - channel_min)
+
     def __len__(self):
         return len(self.inputs)
 

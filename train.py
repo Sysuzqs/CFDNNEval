@@ -9,7 +9,7 @@ import argparse
 import metrics
 from timeit import default_timer
 from functools import reduce
-from utils import setup_seed, get_model, get_dataset, get_dataloader
+from utils import setup_seed, get_model, get_dataset, get_dataloader, get_min_max
 from visualize import *
 from dataset import *
 
@@ -22,6 +22,8 @@ def train_loop(model, train_loader, optimizer, loss_fn, device, args):
     train_loss = 0
     train_l_inf = 0
     step = 0
+    # (channel_min, channel_max) = args["channel_min_max"] 
+    # channel_min, channel_max = channel_min.to(device), channel_max.to(device)
     for x, y, mask, case_params, grid, _ in train_loader:
         step += 1
         # batch_size = x.size(0)
@@ -29,11 +31,24 @@ def train_loop(model, train_loader, optimizer, loss_fn, device, args):
         x = x.to(device) # x: input tensor (The previous time step) [b, x1, ..., xd, v] (regular grid) or [b, Nx, v] (point clouds)
         y = y.to(device) # y: target tensor (The latter time step) [b, x1, ..., xd, v], [b, ms, x1, ..., xd,v] (multi-step), or [b, ms, Nx, v] (point clouds)
         grid = grid.to(device) # grid: meshgrid [b, x1, ..., xd, dims] or [b, Nx, dims] 
-        mask = mask.to(device) # mask [b, x1, ..., xd, 1] or (b, Nx, dims)
+        mask = mask.to(device) # mask [b, x1, ..., xd, 1] or (b, Nx, 1)
         case_params = case_params.to(device) #parameters [b, x1, ..., xd, p] or [b, Nx, p]
         y = y * mask
 
-        if args["training_type"] in ['autoregressive']:
+        if args["model_name"] == "OFormer":
+            #Model run one_step
+            if case_params.shape[-1] == 0: #darcy
+                case_params = case_params.reshape(0)
+
+            loss, pred, info = model.one_forward_step(x, case_params, mask,  grid, y, loss_fn=loss_fn) 
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            _batch = pred.size(0)
+            train_loss += loss.item()
+            train_l_inf = max(train_l_inf, torch.max((torch.abs(pred.reshape(_batch, -1) - y.reshape(_batch, -1)))))
+        else:
             if getattr(train_loader.dataset,"multi_step_size", 1) ==1:
                 #Model run one_step
                 if case_params.shape[-1] == 0: #darcy
@@ -69,7 +84,7 @@ def train_loop(model, train_loader, optimizer, loss_fn, device, args):
     t2 = default_timer()
     return train_loss, train_l_inf, t2 - t1
 
-def val_loop(val_loader, model, loss_fn, device, training_type, output_dir, epoch, metric_names=['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE'], plot_interval = 1):
+def val_loop(val_loader, model, loss_fn, device, output_dir, epoch, args, metric_names=['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE'], plot_interval = 1):
     model.eval()
     val_l2 = 0
     val_l_inf = 0
@@ -81,9 +96,6 @@ def val_loop(val_loader, model, loss_fn, device, training_type, output_dir, epoc
         res_dict["cw_res"][name] = []
         res_dict["sw_res"][name] = []
     
-    ckpt_dir = output_dir + f"/ckpt-{epoch}"
-    if not os.path.exists(ckpt_dir):
-        os.makedirs(ckpt_dir)
 
     with torch.no_grad():
         for x, y, mask, case_params, grid, case_id in val_loader:
@@ -95,7 +107,26 @@ def val_loop(val_loader, model, loss_fn, device, training_type, output_dir, epoc
             mask = mask.to(device) # mask [b, x1, ..., xd, 1]
             case_params = case_params.to(device) #parameters [b, x1, ..., xd, p]
             y = y * mask
-            if training_type == 'autoregressive':
+            
+            if args["model_name"] == "OFormer":
+                # Model run
+                if case_params.shape[-1] == 0: #darcy
+                    case_params = case_params.reshape(0)
+                pred = model(x, case_params, mask, grid)
+                y = y.reshape(-1, val_loader.dataset.multi_step_size, args["model"]["num_points"], y.shape[-1])
+                # Loss calculation
+                _batch = pred.size(0)
+
+                val_l2 += loss_fn(pred.reshape(_batch, -1), y.reshape(_batch, -1)).item()
+                val_l_inf = max(val_l_inf, torch.max((torch.abs(pred.reshape(_batch, -1) - y.reshape(_batch, -1)))))
+                
+
+                for name in metric_names:
+                    metric_fn = getattr(metrics, name)
+                    cw, sw=metric_fn(pred, y)
+                    res_dict["cw_res"][name].append(cw)
+                    res_dict["sw_res"][name].append(sw)
+            else:
                 if getattr(val_loader.dataset,"multi_step_size", 1)==1:
                     # Model run
                     if case_params.shape[-1] == 0: #darcy
@@ -114,11 +145,6 @@ def val_loop(val_loader, model, loss_fn, device, training_type, output_dir, epoc
                         res_dict["cw_res"][name].append(cw)
                         res_dict["sw_res"][name].append(sw)
                     
-                    # if step % plot_interval == 0:
-                    #     image_dir = Path(ckpt_dir + "/images")
-                    #     if not os.path.exists(image_dir):
-                    #         os.makedirs(image_dir)
-                    #     plot_predictions(inp = x, label = y, pred = pred, out_dir=image_dir, step=step)
                 else:
                     # Autoregressive loop
                     preds=[]
@@ -158,7 +184,7 @@ def val_loop(val_loader, model, loss_fn, device, training_type, output_dir, epoc
 
     return val_l2, val_l_inf
 
-def test_loop(test_loader, model, device, training_type, output_dir, metric_names=['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE'], plot_interval = 10, test_type = 'frames'):
+def test_loop(test_loader, model, device, output_dir, args, metric_names=['MSE', 'RMSE', 'L2RE', 'MaxError', 'NMSE', 'MAE'], plot_interval = 10, test_type = 'frames'):
     model.eval()
     step = 0
 
@@ -177,10 +203,10 @@ def test_loop(test_loader, model, device, training_type, output_dir, metric_name
     for name in metric_names:
         res_dict["cw_res"][name] = []
         res_dict["sw_res"][name] = []
-    
-    ckpt_dir = "./test/" + test_type + '/' + args["flow_name"] + '_' + args['dataset']['case_name']
-    if not os.path.exists(ckpt_dir):
-        os.makedirs(ckpt_dir)
+
+    if args["use_norm"]:
+        (channel_min, channel_max) = args["channel_min_max"] 
+        channel_min, channel_max = channel_min.to(device), channel_max.to(device)
 
     prev_case_id = -1
     preds = []
@@ -194,16 +220,18 @@ def test_loop(test_loader, model, device, training_type, output_dir, metric_name
                 step = 0
             
             step += 1
-
+            x = x.to(device)
             y = y.to(device) # y: target tensor  [b, x1, ..., xd, v] if mutli_step_size ==1 else [b, multi_step_size, x1, ..., xd, v]
             grid = grid.to(device) # grid: meshgrid [b, x1, ..., xd, dims] 
             mask = mask.to(device) # mask [b, x1, ..., xd, 1] if mutli_step_size ==1 else [b, multi_step_size, x1, ..., xd, 1]
             case_params = case_params.to(device) #parameters [b, x1, ..., xd, p]
             y = y * mask
+            
             if getattr(test_loader.dataset,"multi_step_size", 1) ==1:
                 # batch_size = x.size(0)
                 if test_type == 'frames':
-                    x = x.to(device) # x: input tensor (The previous time step grand truth data) [b, x1, ..., xd, v]
+                    # x = x.to(device) # x: input tensor (The previous time step grand truth data) [b, x1, ..., xd, v]
+                    pass
                 elif test_type == 'accumulate': 
                     if prev_case_id == -1:
                         # new case start
@@ -215,8 +243,7 @@ def test_loop(test_loader, model, device, training_type, output_dir, metric_name
                                 cw, sw=metric_fn(preds, gts)
                                 res_dict["cw_res"][name].append(cw)
                                 res_dict["sw_res"][name].append(sw)
-                            
-                        x = x.to(device)
+
                         preds = []
                         gts = []
                     else:
@@ -226,46 +253,43 @@ def test_loop(test_loader, model, device, training_type, output_dir, metric_name
                 
                 pred = model(x, case_params, mask, grid)
 
+                #collect data, need to reverse normalization
                 if test_type == 'frames':
                     for name in metric_names:
                         metric_fn = getattr(metrics, name)
-                        cw, sw=metric_fn(pred, y)
+                        if args["use_norm"]:
+                            cw, sw=metric_fn(pred * (channel_max - channel_min) + channel_min, y * (channel_max - channel_min) + channel_min)
+                        else:
+                            cw, sw=metric_fn(pred, y)
                         res_dict["cw_res"][name].append(cw)
                         res_dict["sw_res"][name].append(sw)
                 else: # accumulate
-                    preds.append(pred)
-                    gts.append(y) 
+                    if args["use_norm"]:
+                        preds.append(pred * (channel_max - channel_min) + channel_min)
+                        gts.append(y * (channel_max - channel_min) + channel_min) 
+                    else:
+                        preds.append(pred)
+                        gts.append(y) 
                     
                 prev_case_id = case_id
             else:
                 # autoregressive loop for multi_step
-                x= x.to(device)
-                preds=[]
-                for i in range(test_loader.dataset.multi_step_size):
-                    pred = model(x, case_params, mask[:,i], grid)
-                    preds.append(pred)
-                    x = pred
-                preds=torch.stack(preds, dim=1)
+                if args["model_name"] == "OFormer":
+                    preds=model(x, case_params, mask, grid)
+                    preds = preds*(channel_max-channel_min) + channel_min
+                else:
+                    preds=[]
+                    for i in range(test_loader.dataset.multi_step_size):
+                        pred = model(x, case_params, mask[:,i], grid)
+                        preds.append(pred)
+                        x = pred
+                    preds=torch.stack(preds, dim=1)
                 for name in metric_names:
                     metric_fn = getattr(metrics, name)
                     cw, sw=metric_fn(preds, y)
                     res_dict["cw_res"][name].append(cw)
                     res_dict["sw_res"][name].append(sw)
                
-            # if step % plot_interval == 0:
-            #     image_dir = Path(ckpt_dir + '/case_id' + str(case_id) + "/images")
-            #     if not os.path.exists(image_dir):
-            #         os.makedirs(image_dir)
-            #     if test_type == 'frames':
-            #         plot_predictions(inp = x, label = y, pred = pred, out_dir=image_dir, step=step)
-            #     elif test_type == 'accumulate':
-            #         plot_predictions(label = y, pred = pred, out_dir=image_dir, step=step)
-
-            #     #plot the stream line    
-            #     streamline_dir = Path(ckpt_dir + '/case_id' + str(case_id) + "/streamline")
-            #     if not os.path.exists(streamline_dir):
-            #         os.makedirs(streamline_dir)
-            #     plot_stream_line(pred = pred, label = y, grid = grid, out_dir = streamline_dir, step=step)
             
     t2 = default_timer()
     Mean_inference_time = (t2-t1)/len(test_loader.dataset)
@@ -333,6 +357,18 @@ def main(args):
     n_case_params = case_params.shape[-1]
     args["model"]["num_points"] = reduce(lambda x,y: x*y, grid.shape[1:-1])  # get num_points, especially of irregular geometry(point clouds)
 
+    # get min_max per channel of train-set on the fly for normalization.
+    
+    if args["use_norm"]:
+        channel_min, channel_max = get_min_max(train_loader)   
+        args["channel_min_max"] = (channel_min, channel_max)
+        print("use min_max normalization with min=", channel_min.tolist(), ", max=", channel_max.tolist())
+        train_loader.dataset.apply_norm(channel_min, channel_max)
+        val_loader.dataset.apply_norm(channel_min, channel_max)
+        test_loader.dataset.apply_norm(channel_min, channel_max)
+        if test_ms_data is not None:
+            test_ms_loader.dataset.apply_norm(channel_min, channel_max)
+
     #model
     model = get_model(spatial_dim, n_case_params, args)
     num_params = sum(p.numel() for p in model.parameters())
@@ -345,11 +381,11 @@ def main(args):
         model.load_state_dict(checkpoint["model_state_dict"])
         model.to(device)
         print("start testing...")
-        test_loop(test_loader, model, device, args["training_type"], output_dir, test_type='frames')
+        test_loop(test_loader, model, device, output_dir, args, test_type='frames')
         if test_ms_data is not None:  # not darcy
-            test_loop(test_ms_loader, model, device, args["training_type"], output_dir, test_type='multi_step')
+            test_loop(test_ms_loader, model, device, output_dir, args, test_type='multi_step')
         if args["flow_name"] not in ["Darcy"]:
-            test_loop(test_loader, model, device, args["training_type"], output_dir, test_type='accumulate')
+            test_loop(test_loader, model, device, output_dir, args, test_type='accumulate')
         print("Done") 
         return
     ## if continue training, resume model from checkpoint
@@ -406,7 +442,7 @@ def main(args):
             }, saved_path + "-latest.pt")
         if (epoch+1) % args["save_period"] == 0:
             print("====================validate====================")
-            val_l2_full, val_l_inf = val_loop(val_loader, model, loss_fn, device, args["training_type"], output_dir, epoch, plot_interval=args['plot_interval'])
+            val_l2_full, val_l_inf = val_loop(val_loader, model, loss_fn, device, output_dir, epoch, args, plot_interval=args['plot_interval'])
             print(f"[Epoch {epoch}] val_l2_full: {val_l2_full} val_l_inf: {val_l_inf}")
             print("================================================")
             if val_l2_full < min_val_loss:
@@ -439,6 +475,12 @@ if __name__ == "__main__":
         args['dataset']['case_name'] = cmd_args.case_name
 
     setup_seed(args["seed"])
+
+    # set use_norm
+    use_norm_default=True
+    if args["flow_name"] in ["TGV","Darcy"]:
+        use_norm_default = False
+    args["use_norm"] = args.get("use_norm", use_norm_default)
     print(args)
     main(args)
 # print(torch.cuda.device_count())

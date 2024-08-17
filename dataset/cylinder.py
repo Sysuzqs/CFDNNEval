@@ -19,6 +19,7 @@ class CylinderDataset(Dataset):
                  norm_bc = True,
                  reshape_parameters = True,
                  multi_step_size = 1,
+                 filter_outlier = True
                  ):
         
         '''
@@ -98,16 +99,14 @@ class CylinderDataset(Dataset):
                                     continue
                                 this_case_params[param_name] = np.array(data[param_name], dtype=np.float32)[0]
                         
-                        if name == 'rRE' and (this_case_params['RE'] < 15 or this_case_params['RE'] > 99999):
+                        if name == 'rRE' and (this_case_params['RE'] < 15 or this_case_params['RE'] > 99999) and filter_outlier:
                             continue
                         
                         #############################################################
                         #load u ,v, p, grid and get mask
                         u, v, p = np.array(data['Vx'], dtype=np.float32), np.array(data['Vy'], np.float32), np.array(data['P'], np.float32)
                         index = np.isnan(u)
-                        u = (u - self.statistics['vel_x_mean']) / self.statistics['vel_x_std']
-                        v = (v - self.statistics['vel_y_mean']) / self.statistics['vel_y_std']
-                        p = (p - self.statistics['prs_mean']) / self.statistics['prs_std']
+                        
                         u[np.isnan(u)] = 0
                         v[np.isnan(v)] = 0
                         p[np.isnan(p)] = 0
@@ -203,6 +202,10 @@ class CylinderDataset(Dataset):
         """
         case_params['vel_top'] = (case_params['vel_top'] - 18.366547) / 16.31889
     
+    def apply_norm(self, channel_min, channel_max):
+        self.inputs = (self.inputs - channel_min) / (channel_max - channel_min)
+        self.labels = (self.labels - channel_min) / (channel_max - channel_min)
+
     def __len__(self):
         return len(self.inputs)
 
