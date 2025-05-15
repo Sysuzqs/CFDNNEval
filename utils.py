@@ -2,10 +2,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import random
-from model import FNO2d, FNO3d, LSM_2d, LSM_3d, AutoDeepONet, AutoDeepONet_3d, UNO2d, UNO3d, KNO2d, KNO3d, UNet2d, UNet3d, LSM_2d_ir, geoFNO2d, Oformer
+from model import FNO2d, FNO3d, LSM_2d, LSM_3d, AutoDeepONet, AutoDeepONet_3d, UNO2d, UNO3d, KNO2d, KNO3d, UNet2d, UNet3d, LSM_2d_ir, geoFNO2d, Oformer,  NUFNO2d, NUFNO3d, NUUNet2d, NUUNet3d, FourierTransformer2DLite, My_FourierTransformer2D, My_FourierTransformer3D, Darcy_FourierTransformer2D
 from dataset import *
 import os
 import shutil
+from collections import defaultdict
 
 def setup_seed(seed):
     torch.manual_seed(seed)  # CPU
@@ -121,7 +122,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -132,7 +132,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -143,7 +142,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
@@ -154,7 +152,6 @@ def get_dataset(args):
                                     case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
                                     multi_step_size= dataset_args['multi_step_size'],
                                     reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -162,46 +159,46 @@ def get_dataset(args):
         else:
             test_ms_data = None
     elif args["flow_name"] == "ircylinder":
-        train_data = IRCylinderDataset(
+        if args["model_name"] in  ["NUFNO", "NUUNet"]:
+            _IRCylinderDataset = IRCylinderDataset_NUNO
+        else:
+            _IRCylinderDataset = IRCylinderDataset
+        train_data = _IRCylinderDataset(
                                 filename='cylinder_train.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
-        val_data = IRCylinderDataset(
+        val_data = _IRCylinderDataset(
                                 filename='cylinder_dev.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
-        test_data = IRCylinderDataset(
+        test_data = _IRCylinderDataset(
                                 filename='cylinder_test.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         if dataset_args['multi_step_size'] > 1:
-            test_ms_data = IRCylinderDataset(
+            test_ms_data = _IRCylinderDataset(
                                     filename='cylinder_test.hdf5',
                                     saved_folder=dataset_args['saved_folder'],
                                     case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
                                     multi_step_size= dataset_args['multi_step_size'],
                                     reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -330,7 +327,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -341,7 +337,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -352,7 +347,6 @@ def get_dataset(args):
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
@@ -363,7 +357,6 @@ def get_dataset(args):
                                     case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
                                     multi_step_size= dataset_args['multi_step_size'],
                                     reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -371,46 +364,46 @@ def get_dataset(args):
         else:
             test_ms_data = None
     elif args["flow_name"] == "irhills":
-        train_data = IRHillsDataset(
+        if args["model_name"] in ["NUFNO", "NUUNet"]:
+            _IRHillsDataset = IRHillsDataset_NUNO
+        else:
+            _IRHillsDataset = IRHillsDataset
+        train_data = _IRHillsDataset(
                                 filename=args['flow_name'][2:] + '_train.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
-        val_data = IRHillsDataset(
+        val_data = _IRHillsDataset(
                                 filename=args['flow_name'][2:] + '_dev.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 multi_step_size= dataset_args['multi_step_size'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
-        test_data = IRHillsDataset(
+        test_data = _IRHillsDataset(
                                 filename=args['flow_name'][2:] + '_test.hdf5',
                                 saved_folder=dataset_args['saved_folder'],
                                 case_name=dataset_args['case_name'],
                                 reduced_resolution=dataset_args["reduced_resolution"],
                                 reduced_batch=dataset_args["reduced_batch"],
-                                stable_state_diff = dataset_args['stable_state_diff'],
                                 norm_props = dataset_args['norm_props'],
                                 reshape_parameters=dataset_args.get('reshape_parameters', True)
                                 )
         if dataset_args['multi_step_size'] > 1:
-            test_ms_data = IRHillsDataset(
+            test_ms_data = _IRHillsDataset(
                                     filename=args['flow_name'][2:] + '_test.hdf5',
                                     saved_folder=dataset_args['saved_folder'],
                                     case_name=dataset_args['case_name'],
                                     reduced_resolution=dataset_args["reduced_resolution"],
                                     reduced_batch=dataset_args["reduced_batch"],
-                                    stable_state_diff = dataset_args['stable_state_diff'],
                                     norm_props = dataset_args['norm_props'],
                                     multi_step_size= dataset_args['multi_step_size'],
                                     reshape_parameters=dataset_args.get('reshape_parameters', True)
@@ -502,6 +495,51 @@ def get_model(spatial_dim, n_case_params, args):
                                 n_tolx=args["model"]["num_points"],
                                 multi_step_size=args["dataset"]["multi_step_size"],
                                 dim=2)
+            elif model_name == 'GFormer':
+                print('model:load GFormer------------------')
+                subsample_nodes=3
+                subsample_attn=6
+                if args['dataset']['case_name'] == 'PDEBench':
+                    n_grid = 128
+                    n_x, n_y = 128, 128
+                else:
+                    n_grid = 128
+                    n_x, n_y = 128, 128
+                fine_grid = (n_grid-1) * subsample_nodes + 1  # 逆过来求一下原始网格数(原文这里为421的原始网格)
+                n_grid_c = int(((fine_grid - 1)/subsample_attn) + 1)
+
+                args['n_x'] = n_x
+                args['n_y'] = n_y
+                model_config = args['model']
+                print('n_grid, n_grid_c', n_grid, n_grid_c)
+                # 计算升降比例
+                n_f, n_c = n_grid, n_grid_c
+                factor = np.sqrt(n_c/n_f)
+                factor = np.round(factor, 4)
+                last_digit = float(str(factor)[-1])
+                factor = np.round(factor, 3)
+                if last_digit < 5:
+                    factor += 5e-3
+                factor = int(factor/5e-3 + 5e-1 ) * 5e-3
+                down_factor = (factor, factor)
+                n_m = round(n_f*factor)-1
+                up_size = ((n_m, n_m), (n_f, n_f))
+                downsample, upsample =  down_factor, up_size
+                # 使用原始网格计算模型中的降采样、升采样大小
+                # downsample, upsample = get_scaler_sizes(n_grid, n_grid_c)
+                model_config = args['model']
+                model_config['downscaler_size'] = downsample
+                print('downsample:', downsample)
+                model_config['upscaler_size'] = upsample
+                model_config['attn_norm'] = not model_config['attn_norm']  # True
+                model_config['node_feats'] = int(model_config['node_feats'])
+                if model_config['attention_type'] == 'fourier' or n_grid < 211:
+                    model_config['norm_eps'] = 1e-7
+                elif model_config['attention_type'] == 'galerkin' and n_grid >= 211:
+                    model_config['norm_eps'] = 1e-5
+
+                model = Darcy_FourierTransformer2D(**model_config)
+   
         else:
             #TODO
             pass
@@ -516,6 +554,14 @@ def get_model(spatial_dim, n_case_params, args):
                       modes1 = model_args['modes'],
                       modes2 = model_args['modes'],
                       n_case_params = n_case_params)
+            elif model_name == "NUFNO":
+                model = NUFNO2d(inputs_channel=model_args['inputs_channel'],
+                              outputs_channel=model_args['outputs_channel'],
+                      width = model_args['width'],
+                      modes1 = model_args['modes'],
+                      modes2 = model_args['modes'],
+                      n_case_params = n_case_params,
+                      n_subdomains = model_args['n_subdomains'])
             elif model_name == "geoFNO":
                 model = geoFNO2d(inputs_channel=model_args['inputs_channel'],
                                 outputs_channel=model_args['outputs_channel'],
@@ -580,12 +626,62 @@ def get_model(spatial_dim, n_case_params, args):
                         out_channels=model_args['out_channels'],
                         init_features=model_args['init_features'],
                         n_case_params = n_case_params)
+            elif model_name == 'NUUNet':
+                model = NUUNet2d(in_channels=model_args['in_channels'],
+                        out_channels=model_args['out_channels'],
+                        init_features=model_args['init_features'],
+                        n_case_params = n_case_params,
+                        n_subdomains = model_args['n_subdomains'])
             elif model_name == 'OFormer':
                 model = Oformer(input_ch=model_args['inputs_channel']+n_case_params,
                                 output_ch=model_args['outputs_channel'],
                                 n_tolx=args["model"]["num_points"],
                                 multi_step_size=args["dataset"]["multi_step_size"],
                                 dim=2)
+            elif model_name == 'GFormer':
+                model_config = args["model"]
+                # model 1：lite
+                if model_config['model_type']=='lite':
+                    config = defaultdict(lambda: None,
+                                #  node_feats=10+2,
+                                    node_feats=int(model_config['node_feats']),  # 重新设置12+2
+                                    pos_dim=2,
+                                    out_dim = model_config['out_dim'],
+                                    n_targets=1,
+                                    n_hidden=128,  # attention's d_model
+                                    num_feat_layers=0,
+                                    num_encoder_layers=6,
+                                    n_head=4,
+                                    dim_feedforward=256,
+                                    attention_type='galerkin',
+                                    feat_extract_type=None,
+                                    xavier_init=0.01,
+                                    diagonal_weight=0.01,
+                                    layer_norm=True,
+                                    attn_norm=False,
+                                    return_attn_weight=False,
+                                    return_latent=False,
+                                    decoder_type='ifft',
+                                    freq_dim=20,  # hidden dim in the frequency domain
+                                    num_regressor_layers=2,  # number of spectral layers
+                                    fourier_modes=12,  # number of Fourier modes
+                                    spacial_dim=2,
+                                    spacial_fc=False,
+                                    dropout=0.0,
+                                    encoder_dropout=0.0,
+                                    decoder_dropout=0.0,
+                                    ffn_dropout=0.05,
+                                    debug=False,
+                                    )
+                    model = FourierTransformer2DLite(**config)
+                # model 2：normal
+                else:
+                    # add original setup
+                    subsample_nodes=3,
+                    subsample_attn=6,
+                    model_config['node_feats'] = int(model_config['node_feats'])
+                    model_config['norm_eps'] = 1e-5
+                    model = My_FourierTransformer2D(**model_config)
 
         elif spatial_dim == 3:
             if model_name == "FNO":
@@ -596,6 +692,15 @@ def get_model(spatial_dim, n_case_params, args):
                       modes2 = model_args['modes'],
                       modes3 = model_args['modes'],
                       n_case_params = n_case_params)
+            elif model_name == "NUFNO":
+                model = NUFNO3d(inputs_channel=model_args['inputs_channel'],
+                              outputs_channel=model_args['outputs_channel'],
+                      width = model_args['width'],
+                      modes1 = model_args['modes'],
+                      modes2 = model_args['modes'],
+                      modes3 = model_args['modes'],
+                      n_case_params = n_case_params,
+                      n_subdomains = model_args['n_subdomains'])
             elif model_name == "LSM":
                 if model_args["irregular_geo"]:
                     raise NotImplementedError("LSM for 3D is not implemented for irregular geometry yet.")
@@ -644,20 +749,104 @@ def get_model(spatial_dim, n_case_params, args):
                         out_channels=model_args['out_channels'],
                         init_features=model_args['init_features'],
                         n_case_params = n_case_params)
+            elif model_name == 'NUUNet':
+                model = NUUNet3d(in_channels=model_args['in_channels'],
+                        out_channels=model_args['out_channels'],
+                        init_features=model_args['init_features'],
+                        n_case_params = n_case_params,
+                        n_subdomains = model_args['n_subdomains'])
+            elif model_name == 'GFormer':
+                model_config = args["model"]
+                # 3D for hills
+                model_config['attn_norm'] = not model_config['attn_norm']
+                model_config['node_feats'] = int(model_config['node_feats'])
+                model_config['norm_eps'] = 1e-5
+
+                model = My_FourierTransformer3D(**model_config)
+            elif model_name == 'OFormer':
+                model = Oformer(input_ch=model_args['inputs_channel']+n_case_params,
+                                output_ch=model_args['outputs_channel'],
+                                n_tolx=args["model"]["num_points"],
+                                multi_step_size=args["dataset"]["multi_step_size"],
+                                dim=3)
+
     return model
 
-def get_min_max(dataloader):
-    for i, batch in enumerate(dataloader):
-        x = batch[0] # inputs [bs, h, w, c] or [bs, nx, c]
-        c = x.shape[-1]
-        if i == 0:  # initialize
-            channel_min, _ = x.view(-1, c).min(dim=0)
-            channel_max, _ = x.view(-1, c).max(dim=0)
-        else:
-            batch_max_value, _ = x.view(-1,c).max(dim=0)
-            batch_min_value, _ = x.view(-1,c).min(dim=0)
-            channel_min = torch.minimum(channel_min, batch_min_value)
-            channel_max = torch.maximum(channel_max, batch_max_value)
+default_minmax_channels = {
+    "cavity": {
+        "bc": torch.tensor([[-21.820903778076172, -36.05586242675781, -291.2026672363281],
+                            [34.55437469482422, 21.9743709564209, 871.6431274414062]]),
+        "re": torch.tensor([[-0.42775022983551025, -0.7351908683776855, -4.729204177856445],
+                            [0.9286726117134094, 0.40977877378463745, 4.623359680175781]]),
+        "ReD": torch.tensor([[-0.7218633890151978, -0.7597835659980774, -12.665838241577148],
+                              [0.9996216297149658, 0.45298323035240173, 18.963367462158203]]),
+        "ReD_bc_re": torch.tensor([[-21.820903778076172, -36.05586242675781, -291.2026672363281],
+                                   [34.55437469482422, 21.9743709564209, 871.6431274414062]]),
+    },
+    "tube": {
+        "bc": torch.tensor([[0.0, -0.23288129270076752],[1.496768832206726, 0.23283222317695618]]),
+        "geo": torch.tensor([[-0.00024760616361163557, -0.24431051313877106], [1.500606894493103, 0.24422840774059296]]),
+        "prop": torch.tensor([[0.0, -0.26001930236816406], [1.4960201978683472, 0.260026216506958]]),
+        "bc_geo": torch.tensor([[-0.00024760616361163557, -0.24431051313877106],[1.500606894493103, 0.24422840774059296]]),
+        "prop_bc": torch.tensor([[0.0, -0.26001930236816406],[1.496768832206726, 0.260026216506958]]),
+        "prop_geo": torch.tensor([[-0.00024760616361163557, -0.26001930236816406], [1.500606894493103, 0.260026216506958]]),
+        "prop_bc_geo": torch.tensor([[-0.00024760616361163557, -0.26001930236816406],[1.500606894493103, 0.260026216506958]]),
+    },
+    "NSCH":{
+        "ca": torch.tensor([[-1.0013279914855957, -1.0, -0.01557231042534113],
+                             [1.0209170579910278, 1.0, 0.01557231042534113]]),
+        "phi": torch.tensor([[-1.1152399778366089, -1.0675870180130005, -0.07914472371339798],
+                             [1.0359419584274292, 1.0676339864730835, 0.07638972252607346]]),
+        "eps": torch.tensor([[-1.0, -1.0, -0.029226046055555344],
+                             [1.0413249731063843, 1.0, 0.029226046055555344]]),
+        "mob": torch.tensor([[-1.0272589921951294, -1.0059770345687866, -0.10580600053071976],
+                             [1.043949007987976, 1.0059770345687866, 0.10580600053071976]]),
+        "re": torch.tensor([[-1.0012580156326294, -1.0, -0.05708836019039154],
+                            [1.0202419757843018, 1.0, 0.05708836019039154]]),
+        "ibc": torch.tensor([[-1.083219051361084, -9.982743263244629, -0.06129448860883713],
+                             [1.119168996810913, 9.982743263244629, 0.06129448860883713]]),
+    },
+    "cylinder":{
+        "rBC": torch.tensor([[-41.48142623901367, -64.7027359008789, -5329.173828125],
+                             [110.315185546875, 63.08414077758789, 2628.212646484375]]),
+        "rRE": torch.tensor([[-0.873637855052948, -1.2119133472442627, -8.137107849121094],
+                             [2.213331460952759, 1.185351848602295, 2.3270020484924316]])
+    },
+    "ircylinder":{
+        "irBC": torch.tensor([[-42.211341857910156, -65.98857879638672, -5953.85888671875],
+                             [113.3804702758789, 64.10173797607422, 2933.802734375]]),
+        "irRE": torch.tensor([[-0.9188112616539001, -1.2337069511413574, -8.151810646057129],
+                              [2.2467875480651855, 1.2144097089767456, 2.6829822063446045]])
+    },
+    "hills":{
+        "rRE": torch.tensor([ [-24.633068084716797, -29.008529663085938, -12.332571029663086, -242.58314514160156],
+                             [66.42779541015625, 29.029993057250977, 25.84693717956543, 854.3807983398438]])
+    },
+    "irhills":{
+        "irRE": torch.tensor([[-27.92310333251953, -31.912891387939453, -12.819289207458496, -313.4261779785156],
+                              [66.46695709228516, 31.170812606811523, 25.986618041992188, 862.0435180664062]])
+    }
+}
+
+def get_min_max(dataloader, args):
+    flow_name = args["flow_name"]
+    case_name = args["dataset"]["case_name"]
+    if flow_name in default_minmax_channels.keys() and case_name in default_minmax_channels[flow_name].keys():
+        # get from the cache
+        channel_min, channel_max = default_minmax_channels[flow_name][case_name]
+    else:
+        # generate online
+        for i, batch in enumerate(dataloader):
+            x = batch[0] # inputs [bs, h, w, c] or [bs, nx, c]
+            c = x.shape[-1]
+            if i == 0:  # initialize
+                channel_min, _ = x.view(-1, c).min(dim=0)
+                channel_max, _ = x.view(-1, c).max(dim=0)
+            else:
+                batch_max_value, _ = x.view(-1,c).max(dim=0)
+                batch_min_value, _ = x.view(-1,c).min(dim=0)
+                channel_min = torch.minimum(channel_min, batch_min_value)
+                channel_max = torch.maximum(channel_max, batch_max_value)
     return channel_min, channel_max
 
 
